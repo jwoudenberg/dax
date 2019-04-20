@@ -21,6 +21,7 @@ dependencies:
 library:
   source-dirs: src
   dependencies:
+  - aeson
   - http-types
   - scotty
   - text
