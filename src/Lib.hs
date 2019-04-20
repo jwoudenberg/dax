@@ -7,23 +7,20 @@ module Lib
   ) where
 
 import "text" Data.Text (Text)
+import "text" Data.Text.Lazy (fromStrict)
 import "wai" Network.Wai
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "http-types" Network.HTTP.Types.Status as Status
+import qualified "scotty" Web.Scotty as Scotty
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
 
-type Decoder a = Text -> a
-
-param :: Decoder a -> (a -> b) -> Request -> (b, Request)
-param = undefined
-
 data Route a where
   Get :: (Aeson.ToJSON b) => Route b
   StaticParam :: Text -> Route b -> Route b
-  Param :: Text -> Decoder a -> Route b -> Route (a -> b)
+  Param :: (Scotty.Parsable a) => Text -> Route b -> Route (a -> b)
 
 data Endpoint where
   Endpoint :: Route a -> a -> Endpoint
@@ -51,7 +48,9 @@ serveRoute :: Route a -> a -> RequestInfo -> Response
 serveRoute Get x _ = responseLBS Status.status200 [] (Aeson.encode x)
 serveRoute (StaticParam _ sub) x req =
   serveRoute sub x req {path = tail (path req)}
-serveRoute (Param _ decoder sub) f req =
+serveRoute (Param _ sub) f req =
   let newPath = tail (path req)
-      param = decoder . head $ path req
-   in serveRoute sub (f param) req {path = newPath}
+      param' = Scotty.parseParam . fromStrict . head $ path req
+   in case param' of
+        Right param -> serveRoute sub (f param) req {path = newPath}
+        Left _ -> responseLBS Status.status400 [] ""
