@@ -14,6 +14,7 @@ import "scotty" Web.Scotty
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
 import qualified "http-types" Network.HTTP.Types.Status as Status
+import qualified "wai" Network.Wai as Wai
 
 someFunc :: IO ()
 someFunc = putStrLn "someFunc"
@@ -29,9 +30,9 @@ data Endpoint where
 type API = [Endpoint]
 
 -- |
--- Interpret the API as a Scotty application.
-scotty :: API -> ScottyM ()
-scotty = traverse_ serveEndpoint
+-- Interpret the API as a WAI application.
+application :: API -> IO Wai.Application
+application = scottyApp . traverse_ serveEndpoint
 
 serveEndpoint :: Endpoint -> ScottyM ()
 serveEndpoint (Endpoint route handler) = serveEndpoint' End route (pure handler)
