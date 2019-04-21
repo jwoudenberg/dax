@@ -13,10 +13,13 @@ main = Warp.run 5000 =<< application [endpoint toKelvinRoute toKelvin]
 toKelvinRoute :: Route (Float -> Float)
 toKelvinRoute =
   static "centigrade" $
-  capture "temperature" $ static "kelvin" $ get floatEncoder
+  capture "temperature" floatParamDecoder $ static "kelvin" $ get floatEncoder
 
 floatEncoder :: Encoder Float
 floatEncoder = autoJsonEncoder
+
+floatParamDecoder :: ParamDecoder Float
+floatParamDecoder = autoParamDecoder
 
 toKelvin :: Float -> Float
 toKelvin = (+) 273.15

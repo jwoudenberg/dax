@@ -8,19 +8,22 @@ module Lib
   , API
   , Route
   , Encoder
+  , ParamDecoder
   , endpoint
   , get
   , static
   , capture
   , application
   , autoJsonEncoder
+  , autoParamDecoder
   ) where
 
+import "base" Data.Bifunctor (first)
 import "bytestring" Data.ByteString.Lazy (ByteString)
 import "base" Data.Foldable (traverse_)
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
-import "text" Data.Text.Lazy (fromStrict)
+import "text" Data.Text.Lazy (fromStrict, toStrict)
 import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
 
 import qualified "aeson" Data.Aeson as Aeson
@@ -33,7 +36,7 @@ import qualified "scotty" Web.Scotty as Scotty
 data Route a where
   Get :: Encoder a -> Route a
   PathSegmentStatic :: Text -> Route b -> Route b
-  PathSegmentCapture :: (Scotty.Parsable a) => Text -> Route b -> Route (a -> b)
+  PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 
 data Endpoint where
   Endpoint :: Route a -> a -> Endpoint
@@ -52,6 +55,14 @@ autoJsonEncoder =
     , mediaType = "application" // "json" /: ("charset", "utf-8")
     }
 
+newtype ParamDecoder a = ParamDecoder
+  { parse :: Text -> Either Text a
+  }
+
+autoParamDecoder :: Scotty.Parsable a => ParamDecoder a
+autoParamDecoder =
+  ParamDecoder {parse = first toStrict . Scotty.parseParam . fromStrict}
+
 endpoint :: Route a -> a -> Endpoint
 endpoint = Endpoint
 
@@ -61,7 +72,7 @@ get = Get
 static :: Text -> Route a -> Route a
 static = PathSegmentStatic
 
-capture :: (Scotty.Parsable a) => Text -> Route b -> Route (a -> b)
+capture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 capture = PathSegmentCapture
 
 -- |
@@ -77,11 +88,15 @@ serveEndpoint' path route f =
   case route of
     Get encoder -> Scotty.get (toPath path) (respond encoder =<< f)
     (PathSegmentStatic name sub) -> serveEndpoint' (Static name path) sub f
-    (PathSegmentCapture name sub) ->
-      serveEndpoint'
-        (Capture name path)
-        sub
-        (f <*> Scotty.param (fromStrict name))
+    (PathSegmentCapture name decoder sub) ->
+      serveEndpoint' (Capture name path) sub (f <*> decodeParam name decoder)
+
+decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
+decodeParam name ParamDecoder {parse} = do
+  value <- Scotty.param (fromStrict name)
+  case parse value of
+    Right x -> pure x
+    Left _ -> Scotty.next
 
 respond :: Encoder a -> a -> Scotty.ActionM ()
 respond Encoder {encode, mediaType} x = do
