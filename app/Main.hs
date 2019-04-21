@@ -12,10 +12,8 @@ main = Warp.run 5000 =<< application [getKelvin]
 
 getKelvin :: Endpoint
 getKelvin =
-  Endpoint
-    (PathSegmentStatic "centigrade" .
-     PathSegmentCapture "temperature" . PathSegmentStatic "kelvin" $
-     Get)
+  endpoint
+    (static "centigrade" $ capture "temperature" $ static "kelvin" $ get)
     centigradeToKelvin
 
 centigradeToKelvin :: Float -> Float
