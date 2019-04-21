@@ -16,6 +16,14 @@ module Lib
   , application
   , autoJsonEncoder
   , autoParamDecoder
+  -- Convenience re-exports.
+  -- Dax should come with batteries. It won't recommend writing custom JSON
+  -- encoders but exports `ToJSON` to support writing generic encoders without
+  -- needing to take an explicit dependency on Aeson.
+  , Aeson.ToJSON
+  -- Similar to above a user shouldn't need to pull in another library to be
+  -- able use generics for decoding parameters.
+  , Scotty.Parsable
   ) where
 
 import "base" Data.Bifunctor (first)
