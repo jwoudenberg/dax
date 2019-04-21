@@ -3,7 +3,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Lib
-  ( someFunc
+  ( Endpoint(Endpoint)
+  , API
+  , Route(Get, PathSegmentStatic, PathSegmentCapture)
+  , application
   ) where
 
 import "base" Data.Foldable (traverse_)
@@ -15,9 +18,6 @@ import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
 import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
-
-someFunc :: IO ()
-someFunc = putStrLn "someFunc"
 
 data Route a where
   Get :: (Aeson.ToJSON b) => Route b

@@ -37,6 +37,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - dax
+    - warp
 
 tests:
   dax-test:
