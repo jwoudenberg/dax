@@ -22,6 +22,8 @@ library:
   source-dirs: src
   dependencies:
   - aeson
+  - bytestring
+  - http-media
   - http-types
   - scotty
   - text

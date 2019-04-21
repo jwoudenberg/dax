@@ -1,30 +1,37 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module Lib
   ( Endpoint
   , API
   , Route
+  , Encoder
   , endpoint
   , get
   , static
   , capture
   , application
+  , autoJsonEncoder
   ) where
 
+import "bytestring" Data.ByteString.Lazy (ByteString)
 import "base" Data.Foldable (traverse_)
 import "text" Data.Text (Text)
+import "text" Data.Text.Encoding (decodeUtf8)
 import "text" Data.Text.Lazy (fromStrict)
+import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
+import qualified "http-media" Network.HTTP.Media.RenderHeader
 import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route a where
-  Get :: (Aeson.ToJSON b) => Route b
+  Get :: Encoder a -> Route a
   PathSegmentStatic :: Text -> Route b -> Route b
   PathSegmentCapture :: (Scotty.Parsable a) => Text -> Route b -> Route (a -> b)
 
@@ -33,10 +40,22 @@ data Endpoint where
 
 type API = [Endpoint]
 
+data Encoder a = Encoder
+  { encode :: a -> ByteString
+  , mediaType :: MediaType
+  }
+
+autoJsonEncoder :: (Aeson.ToJSON a) => Encoder a
+autoJsonEncoder =
+  Encoder
+    { encode = Aeson.encode
+    , mediaType = "application" // "json" /: ("charset", "utf-8")
+    }
+
 endpoint :: Route a -> a -> Endpoint
 endpoint = Endpoint
 
-get :: (Aeson.ToJSON a) => Route a
+get :: Encoder a -> Route a
 get = Get
 
 static :: Text -> Route a -> Route a
@@ -56,13 +75,21 @@ serveEndpoint (Endpoint route handler) = serveEndpoint' End route (pure handler)
 serveEndpoint' :: Path -> Route a -> Scotty.ActionM a -> Scotty.ScottyM ()
 serveEndpoint' path route f =
   case route of
-    Get -> Scotty.get (toPath path) (Scotty.json =<< f)
+    Get encoder -> Scotty.get (toPath path) (respond encoder =<< f)
     (PathSegmentStatic name sub) -> serveEndpoint' (Static name path) sub f
     (PathSegmentCapture name sub) ->
       serveEndpoint'
         (Capture name path)
         sub
         (f <*> Scotty.param (fromStrict name))
+
+respond :: Encoder a -> a -> Scotty.ActionM ()
+respond Encoder {encode, mediaType} x = do
+  Scotty.setHeader "Content-Type" (fromStrict $ renderMediaType mediaType)
+  Scotty.raw (encode x)
+
+renderMediaType :: MediaType -> Text
+renderMediaType = decodeUtf8 . Network.HTTP.Media.RenderHeader.renderHeader
 
 data Path
   = End
