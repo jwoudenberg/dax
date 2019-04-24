@@ -7,7 +7,7 @@ module Lib
   ( Endpoint
   , API
   , Route
-  , Encoder
+  , ResponseEncoder
   , ParamDecoder
   , endpoint
   , get
@@ -32,17 +32,20 @@ import "base" Data.Foldable (traverse_)
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
 import "text" Data.Text.Lazy (fromStrict, toStrict)
+import "base" Data.Traversable (for)
 import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
+import "http-types" Network.HTTP.Types (Header, Status)
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
+import qualified "text" Data.Text.Lazy as Text.Lazy
 import qualified "http-media" Network.HTTP.Media.RenderHeader
 import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route a where
-  Get :: Encoder a -> Route a
+  Get :: ResponseEncoder a -> Route a
   PathSegmentStatic :: Text -> Route b -> Route b
   PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 
@@ -51,15 +54,21 @@ data Endpoint where
 
 type API = [Endpoint]
 
-data Encoder a = Encoder
-  { encode :: a -> ByteString
+data ResponseEncoder a = ResponseEncoder
+  { encode :: a -> Response
   , mediaType :: MediaType
   }
 
-autoJsonEncoder :: (Aeson.ToJSON a) => Encoder a
+data Response = Response
+  { body :: ByteString
+  , status :: Status
+  , headers :: [Header]
+  }
+
+autoJsonEncoder :: (Aeson.ToJSON a) => ResponseEncoder a
 autoJsonEncoder =
-  Encoder
-    { encode = Aeson.encode
+  ResponseEncoder
+    { encode = \x -> Response (Aeson.encode x) Status.status200 []
     , mediaType = "application" // "json" /: ("charset", "utf-8")
     }
 
@@ -74,7 +83,7 @@ autoParamDecoder =
 endpoint :: Route a -> a -> Endpoint
 endpoint = Endpoint
 
-get :: Encoder a -> Route a
+get :: ResponseEncoder a -> Route a
 get = Get
 
 static :: Text -> Route a -> Route a
@@ -106,10 +115,16 @@ decodeParam name ParamDecoder {parse} = do
     Right x -> pure x
     Left _ -> Scotty.next
 
-respond :: Encoder a -> a -> Scotty.ActionM ()
-respond Encoder {encode, mediaType} x = do
+respond :: ResponseEncoder a -> a -> Scotty.ActionM ()
+respond ResponseEncoder {encode, mediaType} x = do
   Scotty.setHeader "Content-Type" (fromStrict $ renderMediaType mediaType)
-  Scotty.raw (encode x)
+  let Response {body, status, headers} = encode x
+  Scotty.status status
+  for headers $ \(name, value) ->
+    Scotty.setHeader
+      (Text.Lazy.pack $ show name)
+      (fromStrict $ decodeUtf8 value)
+  Scotty.raw body
 
 renderMediaType :: MediaType -> Text
 renderMediaType = decodeUtf8 . Network.HTTP.Media.RenderHeader.renderHeader

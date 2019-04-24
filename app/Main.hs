@@ -24,7 +24,7 @@ toKelvinRoute =
   static "centigrade" $
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
 
-kelvinEncoder :: Encoder Kelvin
+kelvinEncoder :: ResponseEncoder Kelvin
 kelvinEncoder = autoJsonEncoder
 
 centigradeDecoder :: ParamDecoder Centigrade
