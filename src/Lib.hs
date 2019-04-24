@@ -14,7 +14,7 @@ module Lib
   , static
   , capture
   , application
-  , autoJsonEncoder
+  , json200Encoder
   , autoParamDecoder
   -- Convenience re-exports.
   -- Dax should come with batteries. It won't recommend writing custom JSON
@@ -65,8 +65,8 @@ data Response = Response
   , headers :: [Header]
   }
 
-autoJsonEncoder :: (Aeson.ToJSON a) => ResponseEncoder a
-autoJsonEncoder =
+json200Encoder :: (Aeson.ToJSON a) => ResponseEncoder a
+json200Encoder =
   ResponseEncoder
     { encode = \x -> Response (Aeson.encode x) Status.status200 []
     , mediaType = "application" // "json" /: ("charset", "utf-8")
