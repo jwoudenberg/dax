@@ -7,14 +7,12 @@ module Dax
   ( Endpoint
   , API
   , Route
-  , ResponseEncoder
   , ParamDecoder
   , endpoint
   , get
   , static
   , capture
   , application
-  , json200Encoder
   , autoParamDecoder
   -- Convenience re-exports.
   -- Dax should come with batteries. It won't recommend writing custom JSON
@@ -24,6 +22,8 @@ module Dax
   -- Similar to above a user shouldn't need to pull in another library to be
   -- able use generics for decoding parameters.
   , Scotty.Parsable
+  -- Re-export types from internal module.
+  , Dax.Types.ResponseEncoder
   ) where
 
 import "base" Data.Bifunctor (first)
@@ -33,6 +33,7 @@ import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
 import "text" Data.Text.Lazy (fromStrict, toStrict)
 import "base" Data.Traversable (for)
+import "this" Dax.Types
 import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
 import "http-types" Network.HTTP.Types (Header, Status)
 
@@ -44,30 +45,6 @@ import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
--- What information does frontend integration require?
--- - Path & method to make calls
---   - Types of parameters in paths
--- - Type of request body
--- - Type of response body
---   - Success
---   - Error
--- - ? Status codes response might have
---   - Arguably we can decode the body optimistically ignoring the status codes.
---     If decoding fails, 500.
---
--- API of a response module.
--- We would have one such module per media type.
--- Other libraries may add their own.
--- All these libraries should expose the same functions though.
--- There's a learning progression through them.
---
--- module Responses.JSON where
---
--- succeeds :: (ToJSON a) => ResponseEncoder a
--- mayNotFind :: (ToJSON a) => ResponseEncoder (Maybe a)
--- mayNotValidate :: (ToJSON e, ToJSON a) => ResponseEncoder (Either e a)
--- mayFail :: (ToJSON e, ToJSON a) => (e -> Status) -> ResponseEncoder (Either e a)
---
 data Route a where
   Get :: ResponseEncoder a -> Route a
   PathSegmentStatic :: Text -> Route b -> Route b
@@ -77,24 +54,6 @@ data Endpoint where
   Endpoint :: Route a -> a -> Endpoint
 
 type API = [Endpoint]
-
-data ResponseEncoder a = ResponseEncoder
-  { encode :: a -> Response
-  , mediaType :: MediaType
-  }
-
-data Response = Response
-  { body :: ByteString
-  , status :: Status
-  , headers :: [Header]
-  }
-
-json200Encoder :: (Aeson.ToJSON a) => ResponseEncoder a
-json200Encoder =
-  ResponseEncoder
-    { encode = \x -> Response (Aeson.encode x) Status.status200 []
-    , mediaType = "application" // "json" /: ("charset", "utf-8")
-    }
 
 newtype ParamDecoder a = ParamDecoder
   { parse :: Text -> Either Text a

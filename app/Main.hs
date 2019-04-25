@@ -4,8 +4,9 @@
 
 module Main where
 
-import Dax
+import "dax" Dax
 
+import qualified "dax" Dax.Response.Json as Response.Json
 import qualified "warp" Network.Wai.Handler.Warp as Warp
 
 main :: IO ()
@@ -25,7 +26,7 @@ toKelvinRoute =
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
 
 kelvinEncoder :: ResponseEncoder Kelvin
-kelvinEncoder = json200Encoder
+kelvinEncoder = Response.Json.succeeds
 
 centigradeDecoder :: ParamDecoder Centigrade
 centigradeDecoder = autoParamDecoder
