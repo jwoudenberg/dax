@@ -4,7 +4,7 @@
 
 module Main where
 
-import Lib
+import Dax
 
 import qualified "warp" Network.Wai.Handler.Warp as Warp
 
