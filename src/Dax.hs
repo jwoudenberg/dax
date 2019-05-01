@@ -2,6 +2,7 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Dax
   ( Endpoint
@@ -14,6 +15,7 @@ module Dax
   , capture
   , application
   , autoParamDecoder
+  , documentation
   -- Convenience re-exports.
   -- Dax should come with batteries. It won't recommend writing custom JSON
   -- encoders but exports `ToJSON` to support writing generic encoders without
@@ -29,10 +31,12 @@ module Dax
 import "base" Data.Bifunctor (first)
 import "bytestring" Data.ByteString.Lazy (ByteString)
 import "base" Data.Foldable (traverse_)
+import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
 import "text" Data.Text.Lazy (fromStrict, toStrict)
 import "base" Data.Traversable (for)
+import "base" Data.Typeable (Typeable, typeRep)
 import "this" Dax.Types
 import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
 import "http-types" Network.HTTP.Types (Header, Status)
@@ -46,7 +50,7 @@ import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route a where
-  Get :: ResponseEncoder a -> Route a
+  Get :: Typeable a => ResponseEncoder a -> Route a
   PathSegmentStatic :: Text -> Route b -> Route b
   PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 
@@ -66,7 +70,7 @@ autoParamDecoder =
 endpoint :: Route a -> a -> Endpoint
 endpoint = Endpoint
 
-get :: ResponseEncoder a -> Route a
+get :: Typeable a => ResponseEncoder a -> Route a
 get = Get
 
 static :: Text -> Route a -> Route a
@@ -126,3 +130,28 @@ toPath' :: Text -> Path -> Text
 toPath' acc End = acc
 toPath' acc (Static segment rest) = toPath' ("/" <> segment <> acc) rest
 toPath' acc (Capture name rest) = toPath' ("/:" <> name <> acc) rest
+
+-- |
+-- Interpret an API as documentation
+documentation :: API -> [Doc]
+documentation = fmap docForEndpoint
+
+docForEndpoint :: Endpoint -> Doc
+docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
+
+docForRoute :: Route a -> Doc -> Doc
+docForRoute (Get (encoder :: ResponseEncoder b)) doc =
+  doc
+    { method = "GET"
+    , responseType = Text.pack . show $ typeRep (Proxy :: Proxy b)
+    }
+docForRoute (PathSegmentStatic name sub) doc =
+  docForRoute sub $ doc {path = path doc <> "/" <> name}
+docForRoute (PathSegmentCapture name _ sub) doc =
+  docForRoute sub $ doc {path = path doc <> "/:" <> name}
+
+data Doc = Doc
+  { path :: Text
+  , method :: Text
+  , responseType :: Text
+  } deriving (Show)

@@ -10,7 +10,12 @@ import qualified "dax" Dax.Response.Json as Response.Json
 import qualified "warp" Network.Wai.Handler.Warp as Warp
 
 main :: IO ()
-main = Warp.run 5000 =<< application [endpoint toKelvinRoute toKelvin]
+main = do
+  putStrLn (show (documentation api))
+  Warp.run 5000 =<< application api
+
+api :: API
+api = [endpoint toKelvinRoute toKelvin]
 
 newtype Kelvin =
   Kelvin Float
