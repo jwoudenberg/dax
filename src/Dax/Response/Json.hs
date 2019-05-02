@@ -1,22 +1,70 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Dax.Response.Json
   ( succeeds
+  , mayNotFind
+  , mayNotValidate
+  , mayFail
   ) where
 
+import "bytestring" Data.ByteString.Lazy (ByteString, fromStrict)
 import "this" Dax.Types
-import "http-media" Network.HTTP.Media.MediaType ((//), (/:))
+import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
+import "http-types" Network.HTTP.Types.Status (Status)
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "http-types" Network.HTTP.Types.Status as Status
 
+-- |
+-- Encode a response for an endpoint that always succeeds in getting a response.
 succeeds :: (Aeson.ToJSON a) => ResponseEncoder a
-succeeds =
+succeeds = ResponseEncoder {encode = okResponse, mediaType = applicationJson}
+
+-- |
+-- Use this for endpoints that may not find the data the user requested. If the
+-- endpoint returns `Nothing`, than this encoder will create a 404 response.
+mayNotFind :: (Aeson.ToJSON a) => ResponseEncoder (Maybe a)
+mayNotFind =
   ResponseEncoder
-    { encode = \x -> Response (Aeson.encode x) Status.status200 []
-    , mediaType = "application" // "json" /: ("charset", "utf-8")
+    { encode = maybe (defaultResponse Status.status404) okResponse
+    , mediaType = applicationJson
     }
--- mayNotFind :: (ToJSON a) => ResponseEncoder (Maybe a)
--- mayNotValidate :: (ToJSON e, ToJSON a) => ResponseEncoder (Either e a)
--- mayFail :: (ToJSON e, ToJSON a) => (e -> Status) -> ResponseEncoder (Either e a)
+
+-- |
+-- Use this for endpoints that validate data on the request. If the validation
+-- fails it will create a 400 response.
+mayNotValidate ::
+     (Aeson.ToJSON e, Aeson.ToJSON a) => ResponseEncoder (Either e a)
+mayNotValidate =
+  ResponseEncoder
+    { encode = either (customResponse (const Status.status400)) okResponse
+    , mediaType = applicationJson
+    }
+
+-- |
+-- This is the most general response encoder. You should use it if you need to
+-- create errors with custom status codes.
+mayFail ::
+     (Aeson.ToJSON e, Aeson.ToJSON a)
+  => (e -> Status)
+  -> ResponseEncoder (Either e a)
+mayFail withStatus =
+  ResponseEncoder
+    { encode = either (customResponse withStatus) okResponse
+    , mediaType = applicationJson
+    }
+
+okResponse :: (Aeson.ToJSON a) => a -> Response
+okResponse = customResponse (const Status.status200)
+
+customResponse :: (Aeson.ToJSON a) => (a -> Status) -> a -> Response
+customResponse withStatus a = Response (Aeson.encode a) (withStatus a) []
+
+defaultResponse :: Status -> Response
+defaultResponse status =
+  Response (fromStrict $ Status.statusMessage status) status []
+
+applicationJson :: MediaType
+applicationJson = "application" // "json" /: ("charset", "utf-8")
