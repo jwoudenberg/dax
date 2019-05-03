@@ -4,6 +4,7 @@
 
 module Dax.Response.Json
   ( succeeds
+  , succeedsWithoutResponse
   , mayNotFind
   , mayNotValidate
   , mayFail
@@ -21,6 +22,15 @@ import qualified "http-types" Network.HTTP.Types.Status as Status
 -- Encode a response for an endpoint that always succeeds in getting a response.
 succeeds :: (Aeson.ToJSON a) => ResponseEncoder a
 succeeds = ResponseEncoder {encode = okResponse, mediaType = applicationJson}
+
+-- |
+-- Encode a response for an endpoint that returns no data.
+succeedsWithoutResponse :: ResponseEncoder ()
+succeedsWithoutResponse =
+  ResponseEncoder
+    { encode = const (defaultResponse Status.noContent204)
+    , mediaType = applicationJson
+    }
 
 -- |
 -- Use this for endpoints that may not find the data the user requested. If the
