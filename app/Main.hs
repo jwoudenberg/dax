@@ -25,7 +25,7 @@ newtype Centigrade =
   Centigrade Float
   deriving (Parsable)
 
-toKelvinRoute :: Route (Centigrade -> Kelvin)
+toKelvinRoute :: Route (Centigrade -> IO Kelvin)
 toKelvinRoute =
   static "centigrade" $
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
@@ -36,5 +36,5 @@ kelvinEncoder = Response.Json.succeeds
 centigradeDecoder :: ParamDecoder Centigrade
 centigradeDecoder = autoParamDecoder
 
-toKelvin :: Centigrade -> Kelvin
-toKelvin (Centigrade temperature) = Kelvin (temperature + 273.15)
+toKelvin :: Centigrade -> IO Kelvin
+toKelvin (Centigrade temperature) = pure $ Kelvin (temperature + 273.15)

@@ -48,12 +48,12 @@ import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route a where
-  Get :: Typeable a => ResponseEncoder a -> Route a
+  Get :: Typeable a => ResponseEncoder a -> Route (IO a)
   Post
     :: (Typeable a, Typeable b)
     => BodyDecoder a
     -> ResponseEncoder b
-    -> Route (a -> b)
+    -> Route (a -> IO b)
   PathSegmentStatic :: Text -> Route b -> Route b
   PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 
@@ -73,7 +73,7 @@ autoParamDecoder =
 endpoint :: Route a -> a -> Endpoint
 endpoint = Endpoint
 
-get :: Typeable a => ResponseEncoder a -> Route a
+get :: Typeable a => ResponseEncoder a -> Route (IO a)
 get = Get
 
 static :: Text -> Route a -> Route a
@@ -93,12 +93,14 @@ serveEndpoint (Endpoint route handler) = serveEndpoint' End route (pure handler)
 serveEndpoint' :: Path -> Route a -> Scotty.ActionM a -> Scotty.ScottyM ()
 serveEndpoint' path route f =
   case route of
-    Get encoder -> Scotty.get (toPath path) (respond encoder =<< f)
+    Get encoder ->
+      Scotty.get (toPath path) (respond encoder =<< Scotty.liftAndCatchIO =<< f)
     Post decoder encoder -> do
       Scotty.post (toPath path) $ do
         body <- Scotty.body
         case decode decoder body of
-          Just content -> respond encoder =<< f <*> pure content
+          Just content ->
+            respond encoder =<< Scotty.liftAndCatchIO =<< f <*> pure content
           Nothing -> Scotty.status Status.badRequest400
     (PathSegmentStatic name sub) -> serveEndpoint' (Static name path) sub f
     (PathSegmentCapture name decoder sub) ->
