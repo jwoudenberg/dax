@@ -59,7 +59,8 @@ data Route m a where
     -> ResponseEncoder b
     -> Route m (a -> Result m b)
   PathSegmentStatic :: Text -> Route m b -> Route m b
-  PathSegmentCapture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
+  PathSegmentCapture
+    :: (Typeable a) => ParamDecoder a -> Route m b -> Route m (a -> b)
 
 type family Result m a where
   Result NoEffects x = x
@@ -87,7 +88,7 @@ get = Get
 static :: Text -> Route m a -> Route m a
 static = PathSegmentStatic
 
-capture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
+capture :: Typeable a => ParamDecoder a -> Route m b -> Route m (a -> b)
 capture = PathSegmentCapture
 
 -- |
@@ -128,12 +129,24 @@ serveEndpoint' runM path route f =
             Scotty.liftAndCatchIO . runM =<< f <*> pure content
           Nothing -> Scotty.status Status.badRequest400
     (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
-    (PathSegmentCapture name decoder sub) ->
+    (PathSegmentCapture decoder sub) ->
       serveEndpoint'
         runM
         (Capture name path)
         sub
         (f <*> decodeParam name decoder)
+      where name = paramName sub
+
+paramName :: Route m b -> Text
+paramName sub = Text.pack (show (routeDepth 0 sub))
+
+routeDepth :: Int -> Route m b -> Int
+routeDepth n route =
+  case route of
+    Get _ -> n
+    Post _ _ -> n
+    PathSegmentStatic _ sub -> routeDepth (n + 1) sub
+    PathSegmentCapture _ sub -> routeDepth (n + 1) sub
 
 decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
 decodeParam name ParamDecoder {parse} = do
@@ -181,19 +194,17 @@ docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
 
 docForRoute :: Route m a -> Doc -> Doc
 docForRoute (Get (_encoder :: ResponseEncoder b)) doc =
-  doc
-    { method = "GET"
-    , responseType = Text.pack . show $ typeRep (Proxy :: Proxy b)
-    }
+  doc {method = "GET", responseType = typeName (Proxy :: Proxy b)}
 docForRoute (Post _ (_encoder :: ResponseEncoder b)) doc =
-  doc
-    { method = "GET"
-    , responseType = Text.pack . show $ typeRep (Proxy :: Proxy b)
-    }
+  doc {method = "GET", responseType = typeName (Proxy :: Proxy b)}
 docForRoute (PathSegmentStatic name sub) doc =
   docForRoute sub $ doc {path = path doc <> "/" <> name}
-docForRoute (PathSegmentCapture name _ sub) doc =
-  docForRoute sub $ doc {path = path doc <> "/:" <> name}
+docForRoute (PathSegmentCapture (_ :: ParamDecoder a) sub) doc =
+  docForRoute sub $
+  doc {path = path doc <> "/:<" <> typeName (Proxy :: Proxy a) <> ">"}
+
+typeName :: Typeable a => Proxy a -> Text
+typeName = Text.pack . show . typeRep
 
 data Doc = Doc
   { path :: Text

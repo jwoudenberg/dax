@@ -28,7 +28,7 @@ newtype Centigrade =
 toKelvinRoute :: Route NoEffects (Centigrade -> Kelvin)
 toKelvinRoute =
   static "centigrade" $
-  capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
+  capture centigradeDecoder $ static "kelvin" $ get kelvinEncoder
 
 kelvinEncoder :: ResponseEncoder Kelvin
 kelvinEncoder = Response.Json.succeeds
