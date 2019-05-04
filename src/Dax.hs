@@ -15,7 +15,7 @@ module Dax
   , static
   , capture
   , application
-  , ioApplication
+  , sandbox
   , autoParamDecoder
   , documentation
   -- Convenience re-exports.
@@ -26,6 +26,8 @@ module Dax
   -- Similar to above a user shouldn't need to pull in another library to be
   -- able use generics for decoding parameters.
   , Scotty.Parsable
+  -- Re-export the Identity type for users of the `Sandbox` module.
+  , Identity
   -- Re-export types from internal module.
   , Dax.Types.ResponseEncoder
   , Dax.Types.BodyDecoder
@@ -33,6 +35,7 @@ module Dax
 
 import "base" Data.Bifunctor (first)
 import "base" Data.Foldable (for_, traverse_)
+import "base" Data.Functor.Identity (Identity, runIdentity)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
@@ -89,8 +92,10 @@ capture = PathSegmentCapture
 application :: (forall x. m x -> IO x) -> API m -> IO Wai.Application
 application runM = Scotty.scottyApp . traverse_ (serveEndpoint runM)
 
-ioApplication :: API IO -> IO Wai.Application
-ioApplication = Scotty.scottyApp . traverse_ (serveEndpoint id)
+-- |
+-- A simple application that cannot communicate with the outside world.
+sandbox :: API Identity -> IO Wai.Application
+sandbox = application (pure . runIdentity)
 
 serveEndpoint :: (forall x. m x -> IO x) -> Endpoint m -> Scotty.ScottyM ()
 serveEndpoint runM (Endpoint route handler) =

@@ -12,9 +12,9 @@ import qualified "warp" Network.Wai.Handler.Warp as Warp
 main :: IO ()
 main = do
   putStrLn (show (documentation api))
-  Warp.run 5000 =<< ioApplication api
+  Warp.run 5000 =<< sandbox api
 
-api :: API IO
+api :: API Identity
 api = [endpoint toKelvinRoute toKelvin]
 
 newtype Kelvin =
@@ -25,7 +25,7 @@ newtype Centigrade =
   Centigrade Float
   deriving (Parsable)
 
-toKelvinRoute :: Route IO (Centigrade -> IO Kelvin)
+toKelvinRoute :: Route Identity (Centigrade -> Identity Kelvin)
 toKelvinRoute =
   static "centigrade" $
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
@@ -36,5 +36,5 @@ kelvinEncoder = Response.Json.succeeds
 centigradeDecoder :: ParamDecoder Centigrade
 centigradeDecoder = autoParamDecoder
 
-toKelvin :: Centigrade -> IO Kelvin
+toKelvin :: Centigrade -> Identity Kelvin
 toKelvin (Centigrade temperature) = pure $ Kelvin (temperature + 273.15)
