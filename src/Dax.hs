@@ -2,6 +2,7 @@
 {-# LANGUAGE PackageImports #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Dax
@@ -14,6 +15,7 @@ module Dax
   , static
   , capture
   , application
+  , ioApplication
   , autoParamDecoder
   , documentation
   -- Convenience re-exports.
@@ -47,20 +49,20 @@ import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
-data Route a where
-  Get :: Typeable a => ResponseEncoder a -> Route (IO a)
+data Route m a where
+  Get :: Typeable a => ResponseEncoder a -> Route m (m a)
   Post
     :: (Typeable a, Typeable b)
     => BodyDecoder a
     -> ResponseEncoder b
-    -> Route (a -> IO b)
-  PathSegmentStatic :: Text -> Route b -> Route b
-  PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
+    -> Route m (a -> m b)
+  PathSegmentStatic :: Text -> Route m b -> Route m b
+  PathSegmentCapture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
 
-data Endpoint where
-  Endpoint :: Route a -> a -> Endpoint
+data Endpoint m where
+  Endpoint :: Route m a -> a -> Endpoint m
 
-type API = [Endpoint]
+type API m = [Endpoint m]
 
 newtype ParamDecoder a = ParamDecoder
   { parse :: Text -> Either Text a
@@ -70,41 +72,57 @@ autoParamDecoder :: Scotty.Parsable a => ParamDecoder a
 autoParamDecoder =
   ParamDecoder {parse = first toStrict . Scotty.parseParam . fromStrict}
 
-endpoint :: Route a -> a -> Endpoint
+endpoint :: Route m a -> a -> Endpoint m
 endpoint = Endpoint
 
-get :: Typeable a => ResponseEncoder a -> Route (IO a)
+get :: Typeable a => ResponseEncoder a -> Route m (m a)
 get = Get
 
-static :: Text -> Route a -> Route a
+static :: Text -> Route m a -> Route m a
 static = PathSegmentStatic
 
-capture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
+capture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
 capture = PathSegmentCapture
 
 -- |
 -- Interpret the API as a WAI application.
-application :: API -> IO Wai.Application
-application = Scotty.scottyApp . traverse_ serveEndpoint
+application :: (forall x. m x -> IO x) -> API m -> IO Wai.Application
+application runM = Scotty.scottyApp . traverse_ (serveEndpoint runM)
 
-serveEndpoint :: Endpoint -> Scotty.ScottyM ()
-serveEndpoint (Endpoint route handler) = serveEndpoint' End route (pure handler)
+ioApplication :: API IO -> IO Wai.Application
+ioApplication = Scotty.scottyApp . traverse_ (serveEndpoint id)
 
-serveEndpoint' :: Path -> Route a -> Scotty.ActionM a -> Scotty.ScottyM ()
-serveEndpoint' path route f =
+serveEndpoint :: (forall x. m x -> IO x) -> Endpoint m -> Scotty.ScottyM ()
+serveEndpoint runM (Endpoint route handler) =
+  serveEndpoint' runM End route (pure handler)
+
+serveEndpoint' ::
+     (forall x. m x -> IO x)
+  -> Path
+  -> Route m a
+  -> Scotty.ActionM a
+  -> Scotty.ScottyM ()
+serveEndpoint' runM path route f =
   case route of
     Get encoder ->
-      Scotty.get (toPath path) (respond encoder =<< Scotty.liftAndCatchIO =<< f)
+      Scotty.get
+        (toPath path)
+        (respond encoder =<< Scotty.liftAndCatchIO . runM =<< f)
     Post decoder encoder -> do
       Scotty.post (toPath path) $ do
         body <- Scotty.body
         case decode decoder body of
           Just content ->
-            respond encoder =<< Scotty.liftAndCatchIO =<< f <*> pure content
+            respond encoder =<<
+            Scotty.liftAndCatchIO . runM =<< f <*> pure content
           Nothing -> Scotty.status Status.badRequest400
-    (PathSegmentStatic name sub) -> serveEndpoint' (Static name path) sub f
+    (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
     (PathSegmentCapture name decoder sub) ->
-      serveEndpoint' (Capture name path) sub (f <*> decodeParam name decoder)
+      serveEndpoint'
+        runM
+        (Capture name path)
+        sub
+        (f <*> decodeParam name decoder)
 
 decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
 decodeParam name ParamDecoder {parse} = do
@@ -144,13 +162,13 @@ toPath' acc (Capture name rest) = toPath' ("/:" <> name <> acc) rest
 
 -- |
 -- Interpret an API as documentation
-documentation :: API -> [Doc]
+documentation :: API m -> [Doc]
 documentation = fmap docForEndpoint
 
-docForEndpoint :: Endpoint -> Doc
+docForEndpoint :: Endpoint m -> Doc
 docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
 
-docForRoute :: Route a -> Doc -> Doc
+docForRoute :: Route m a -> Doc -> Doc
 docForRoute (Get (_encoder :: ResponseEncoder b)) doc =
   doc
     { method = "GET"

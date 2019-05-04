@@ -12,9 +12,9 @@ import qualified "warp" Network.Wai.Handler.Warp as Warp
 main :: IO ()
 main = do
   putStrLn (show (documentation api))
-  Warp.run 5000 =<< application api
+  Warp.run 5000 =<< ioApplication api
 
-api :: API
+api :: API IO
 api = [endpoint toKelvinRoute toKelvin]
 
 newtype Kelvin =
@@ -25,7 +25,7 @@ newtype Centigrade =
   Centigrade Float
   deriving (Parsable)
 
-toKelvinRoute :: Route (Centigrade -> IO Kelvin)
+toKelvinRoute :: Route IO (Centigrade -> IO Kelvin)
 toKelvinRoute =
   static "centigrade" $
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder
