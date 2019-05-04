@@ -11,7 +11,6 @@ module Dax.Response.Json
   ) where
 
 import "aeson" Data.Aeson ((.=))
-import "bytestring" Data.ByteString.Lazy (ByteString, fromStrict)
 import "text" Data.Text.Encoding (decodeUtf8)
 import "this" Dax.Types
 import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
@@ -75,10 +74,10 @@ customResponse :: (Aeson.ToJSON a) => (a -> Status) -> a -> Response
 customResponse withStatus a = Response (Aeson.encode a) (withStatus a) []
 
 defaultResponse :: Status -> Response
-defaultResponse status = Response (Aeson.encode body) status []
+defaultResponse status' = Response (Aeson.encode body') status' []
   where
-    body :: Aeson.Object
-    body = "error" .= decodeUtf8 (Status.statusMessage status)
+    body' :: Aeson.Object
+    body' = "error" .= decodeUtf8 (Status.statusMessage status')
 
 applicationJson :: MediaType
 applicationJson = "application" // "json" /: ("charset", "utf-8")

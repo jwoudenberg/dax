@@ -30,17 +30,14 @@ module Dax
   ) where
 
 import "base" Data.Bifunctor (first)
-import "bytestring" Data.ByteString.Lazy (ByteString)
-import "base" Data.Foldable (traverse_)
+import "base" Data.Foldable (for_, traverse_)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
 import "text" Data.Text.Lazy (fromStrict, toStrict)
-import "base" Data.Traversable (for)
 import "base" Data.Typeable (Typeable, typeRep)
 import "this" Dax.Types
-import "http-media" Network.HTTP.Media.MediaType (MediaType, (//), (/:))
-import "http-types" Network.HTTP.Types (Header, Status)
+import "http-media" Network.HTTP.Media.MediaType (MediaType)
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
@@ -119,7 +116,7 @@ respond ResponseEncoder {encode, mediaType} x = do
   Scotty.setHeader "Content-Type" (fromStrict $ renderMediaType mediaType)
   let Response {body, status, headers} = encode x
   Scotty.status status
-  for headers $ \(name, value) ->
+  for_ headers $ \(name, value) ->
     Scotty.setHeader
       (Text.Lazy.pack $ show name)
       (fromStrict $ decodeUtf8 value)
@@ -152,7 +149,12 @@ docForEndpoint :: Endpoint -> Doc
 docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
 
 docForRoute :: Route a -> Doc -> Doc
-docForRoute (Get (encoder :: ResponseEncoder b)) doc =
+docForRoute (Get (_encoder :: ResponseEncoder b)) doc =
+  doc
+    { method = "GET"
+    , responseType = Text.pack . show $ typeRep (Proxy :: Proxy b)
+    }
+docForRoute (Post _ (_encoder :: ResponseEncoder b)) doc =
   doc
     { method = "GET"
     , responseType = Text.pack . show $ typeRep (Proxy :: Proxy b)
