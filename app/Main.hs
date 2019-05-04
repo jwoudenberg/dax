@@ -14,7 +14,7 @@ main = do
   putStrLn (show (documentation api))
   Warp.run 5000 =<< sandbox api
 
-api :: API Identity
+api :: API NoEffects
 api = [endpoint toKelvinRoute toKelvin]
 
 newtype Kelvin =
@@ -25,7 +25,7 @@ newtype Centigrade =
   Centigrade Float
   deriving (Parsable)
 
-toKelvinRoute :: Route Identity (Centigrade -> Kelvin)
+toKelvinRoute :: Route NoEffects (Centigrade -> Kelvin)
 toKelvinRoute =
   static "centigrade" $
   capture "temperature" centigradeDecoder $ static "kelvin" $ get kelvinEncoder

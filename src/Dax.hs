@@ -19,6 +19,7 @@ module Dax
   , sandbox
   , autoParamDecoder
   , documentation
+  , NoEffects
   -- Convenience re-exports.
   -- Dax should come with batteries. It won't recommend writing custom JSON
   -- encoders but exports `ToJSON` to support writing generic encoders without
@@ -27,8 +28,6 @@ module Dax
   -- Similar to above a user shouldn't need to pull in another library to be
   -- able use generics for decoding parameters.
   , Scotty.Parsable
-  -- Re-export the Identity type for users of the `Sandbox` module.
-  , Identity
   -- Re-export types from internal module.
   , Dax.Types.ResponseEncoder
   , Dax.Types.BodyDecoder
@@ -36,7 +35,6 @@ module Dax
 
 import "base" Data.Bifunctor (first)
 import "base" Data.Foldable (for_, traverse_)
-import "base" Data.Functor.Identity (Identity)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
@@ -64,7 +62,7 @@ data Route m a where
   PathSegmentCapture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
 
 type family Result m a where
-  Result Identity x = x
+  Result NoEffects x = x
   Result m x = m x
 
 data Endpoint m where
@@ -99,8 +97,10 @@ application runM = Scotty.scottyApp . traverse_ (serveEndpoint runM)
 
 -- |
 -- A simple application that cannot communicate with the outside world.
-sandbox :: API Identity -> IO Wai.Application
+sandbox :: API NoEffects -> IO Wai.Application
 sandbox = application pure
+
+data NoEffects a
 
 serveEndpoint ::
      (forall x. Result m x -> IO x) -> Endpoint m -> Scotty.ScottyM ()
