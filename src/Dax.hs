@@ -4,6 +4,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Dax
   ( Endpoint
@@ -35,7 +36,7 @@ module Dax
 
 import "base" Data.Bifunctor (first)
 import "base" Data.Foldable (for_, traverse_)
-import "base" Data.Functor.Identity (Identity, runIdentity)
+import "base" Data.Functor.Identity (Identity)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
 import "text" Data.Text.Encoding (decodeUtf8)
@@ -53,14 +54,18 @@ import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route m a where
-  Get :: Typeable a => ResponseEncoder a -> Route m (m a)
+  Get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
   Post
     :: (Typeable a, Typeable b)
     => BodyDecoder a
     -> ResponseEncoder b
-    -> Route m (a -> m b)
+    -> Route m (a -> Result m b)
   PathSegmentStatic :: Text -> Route m b -> Route m b
   PathSegmentCapture :: Text -> ParamDecoder a -> Route m b -> Route m (a -> b)
+
+type family Result m a where
+  Result Identity x = x
+  Result m x = m x
 
 data Endpoint m where
   Endpoint :: Route m a -> a -> Endpoint m
@@ -78,7 +83,7 @@ autoParamDecoder =
 endpoint :: Route m a -> a -> Endpoint m
 endpoint = Endpoint
 
-get :: Typeable a => ResponseEncoder a -> Route m (m a)
+get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
 get = Get
 
 static :: Text -> Route m a -> Route m a
@@ -89,20 +94,21 @@ capture = PathSegmentCapture
 
 -- |
 -- Interpret the API as a WAI application.
-application :: (forall x. m x -> IO x) -> API m -> IO Wai.Application
+application :: (forall x. Result m x -> IO x) -> API m -> IO Wai.Application
 application runM = Scotty.scottyApp . traverse_ (serveEndpoint runM)
 
 -- |
 -- A simple application that cannot communicate with the outside world.
 sandbox :: API Identity -> IO Wai.Application
-sandbox = application (pure . runIdentity)
+sandbox = application pure
 
-serveEndpoint :: (forall x. m x -> IO x) -> Endpoint m -> Scotty.ScottyM ()
+serveEndpoint ::
+     (forall x. Result m x -> IO x) -> Endpoint m -> Scotty.ScottyM ()
 serveEndpoint runM (Endpoint route handler) =
   serveEndpoint' runM End route (pure handler)
 
 serveEndpoint' ::
-     (forall x. m x -> IO x)
+     (forall x. Result m x -> IO x)
   -> Path
   -> Route m a
   -> Scotty.ActionM a
