@@ -16,3 +16,8 @@ data Response = Response
   , status :: Status
   , headers :: [Header]
   }
+
+data BodyDecoder a = BodyDecoder
+  { decode :: ByteString -> Maybe a
+  , bodyMediaType :: MediaType
+  }

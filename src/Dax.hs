@@ -26,6 +26,7 @@ module Dax
   , Scotty.Parsable
   -- Re-export types from internal module.
   , Dax.Types.ResponseEncoder
+  , Dax.Types.BodyDecoder
   ) where
 
 import "base" Data.Bifunctor (first)
@@ -51,6 +52,11 @@ import qualified "scotty" Web.Scotty as Scotty
 
 data Route a where
   Get :: Typeable a => ResponseEncoder a -> Route a
+  Post
+    :: (Typeable a, Typeable b)
+    => BodyDecoder a
+    -> ResponseEncoder b
+    -> Route (a -> b)
   PathSegmentStatic :: Text -> Route b -> Route b
   PathSegmentCapture :: Text -> ParamDecoder a -> Route b -> Route (a -> b)
 
@@ -91,6 +97,12 @@ serveEndpoint' :: Path -> Route a -> Scotty.ActionM a -> Scotty.ScottyM ()
 serveEndpoint' path route f =
   case route of
     Get encoder -> Scotty.get (toPath path) (respond encoder =<< f)
+    Post decoder encoder -> do
+      Scotty.post (toPath path) $ do
+        body <- Scotty.body
+        case decode decoder body of
+          Just content -> respond encoder =<< f <*> pure content
+          Nothing -> Scotty.status Status.badRequest400
     (PathSegmentStatic name sub) -> serveEndpoint' (Static name path) sub f
     (PathSegmentCapture name decoder sub) ->
       serveEndpoint' (Capture name path) sub (f <*> decodeParam name decoder)
