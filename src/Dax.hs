@@ -13,6 +13,10 @@ module Dax
   , ParamDecoder
   , endpoint
   , get
+  , post
+  , put
+  , patch
+  , delete
   , static
   , capture
   , application
@@ -58,6 +62,17 @@ data Route m a where
     => BodyDecoder a
     -> ResponseEncoder b
     -> Route m (a -> Result m b)
+  Put
+    :: (Typeable a, Typeable b)
+    => BodyDecoder a
+    -> ResponseEncoder b
+    -> Route m (a -> Result m b)
+  Delete :: Typeable a => ResponseEncoder a -> Route m (Result m a)
+  Patch
+    :: (Typeable a, Typeable b)
+    => BodyDecoder a
+    -> ResponseEncoder b
+    -> Route m (a -> Result m b)
   PathSegmentStatic :: Text -> Route m b -> Route m b
   PathSegmentCapture
     :: (Typeable a) => ParamDecoder a -> Route m b -> Route m (a -> b)
@@ -84,6 +99,30 @@ endpoint = Endpoint
 
 get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
 get = Get
+
+post ::
+     (Typeable a, Typeable b)
+  => BodyDecoder a
+  -> ResponseEncoder b
+  -> Route m (a -> Result m b)
+post = Post
+
+put ::
+     (Typeable a, Typeable b)
+  => BodyDecoder a
+  -> ResponseEncoder b
+  -> Route m (a -> Result m b)
+put = Put
+
+delete :: (Typeable a) => ResponseEncoder a -> Route m (Result m a)
+delete = Delete
+
+patch ::
+     (Typeable a, Typeable b)
+  => BodyDecoder a
+  -> ResponseEncoder b
+  -> Route m (a -> Result m b)
+patch = Patch
 
 static :: Text -> Route m a -> Route m a
 static = PathSegmentStatic
@@ -128,6 +167,25 @@ serveEndpoint' runM path route f =
             respond encoder =<<
             Scotty.liftAndCatchIO . runM =<< f <*> pure content
           Nothing -> Scotty.status Status.badRequest400
+    Put decoder encoder -> do
+      Scotty.put (toPath path) $ do
+        body <- Scotty.body
+        case decode decoder body of
+          Just content ->
+            respond encoder =<<
+            Scotty.liftAndCatchIO . runM =<< f <*> pure content
+          Nothing -> Scotty.status Status.badRequest400
+    Delete encoder -> do
+      Scotty.delete (toPath path) $
+        respond encoder =<< Scotty.liftAndCatchIO . runM =<< f
+    Patch decoder encoder -> do
+      Scotty.patch (toPath path) $ do
+        body <- Scotty.body
+        case decode decoder body of
+          Just content ->
+            respond encoder =<<
+            Scotty.liftAndCatchIO . runM =<< f <*> pure content
+          Nothing -> Scotty.status Status.badRequest400
     (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
     (PathSegmentCapture decoder sub) ->
       serveEndpoint'
@@ -145,6 +203,9 @@ routeDepth n route =
   case route of
     Get _ -> n
     Post _ _ -> n
+    Put _ _ -> n
+    Delete _ -> n
+    Patch _ _ -> n
     PathSegmentStatic _ sub -> routeDepth (n + 1) sub
     PathSegmentCapture _ sub -> routeDepth (n + 1) sub
 
@@ -196,7 +257,13 @@ docForRoute :: Route m a -> Doc -> Doc
 docForRoute (Get (_encoder :: ResponseEncoder b)) doc =
   doc {method = "GET", responseType = typeName (Proxy :: Proxy b)}
 docForRoute (Post _ (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "GET", responseType = typeName (Proxy :: Proxy b)}
+  doc {method = "POST", responseType = typeName (Proxy :: Proxy b)}
+docForRoute (Put _ (_encoder :: ResponseEncoder b)) doc =
+  doc {method = "PUT", responseType = typeName (Proxy :: Proxy b)}
+docForRoute (Delete (_encoder :: ResponseEncoder b)) doc =
+  doc {method = "DELETE", responseType = typeName (Proxy :: Proxy b)}
+docForRoute (Patch _ (_encoder :: ResponseEncoder b)) doc =
+  doc {method = "PATCH", responseType = typeName (Proxy :: Proxy b)}
 docForRoute (PathSegmentStatic name sub) doc =
   docForRoute sub $ doc {path = path doc <> "/" <> name}
 docForRoute (PathSegmentCapture (_ :: ParamDecoder a) sub) doc =
