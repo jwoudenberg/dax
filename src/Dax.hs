@@ -51,6 +51,7 @@ import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
 import qualified "text" Data.Text.Lazy as Text.Lazy
 import qualified "http-media" Network.HTTP.Media.RenderHeader
+import qualified "http-types" Network.HTTP.Types.Method as Method
 import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
@@ -155,37 +156,14 @@ serveEndpoint' ::
   -> Scotty.ScottyM ()
 serveEndpoint' runM path route f =
   case route of
-    Get encoder ->
-      Scotty.get
-        (toPath path)
-        (respond encoder =<< Scotty.liftAndCatchIO . runM =<< f)
-    Post decoder encoder -> do
-      Scotty.post (toPath path) $ do
-        body <- Scotty.body
-        case decode decoder body of
-          Just content ->
-            respond encoder =<<
-            Scotty.liftAndCatchIO . runM =<< f <*> pure content
-          Nothing -> Scotty.status Status.badRequest400
+    Get encoder -> handleWithoutBody Method.GET path encoder (runM <$> f)
+    Post decoder encoder ->
+      handle Method.POST path decoder encoder ((runM .) <$> f)
     Put decoder encoder -> do
-      Scotty.put (toPath path) $ do
-        body <- Scotty.body
-        case decode decoder body of
-          Just content ->
-            respond encoder =<<
-            Scotty.liftAndCatchIO . runM =<< f <*> pure content
-          Nothing -> Scotty.status Status.badRequest400
-    Delete encoder -> do
-      Scotty.delete (toPath path) $
-        respond encoder =<< Scotty.liftAndCatchIO . runM =<< f
+      handle Method.PUT path decoder encoder ((runM .) <$> f)
+    Delete encoder -> handleWithoutBody Method.DELETE path encoder (runM <$> f)
     Patch decoder encoder -> do
-      Scotty.patch (toPath path) $ do
-        body <- Scotty.body
-        case decode decoder body of
-          Just content ->
-            respond encoder =<<
-            Scotty.liftAndCatchIO . runM =<< f <*> pure content
-          Nothing -> Scotty.status Status.badRequest400
+      handle Method.PATCH path decoder encoder ((runM .) <$> f)
     (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
     (PathSegmentCapture decoder sub) ->
       serveEndpoint'
@@ -194,6 +172,33 @@ serveEndpoint' runM path route f =
         sub
         (f <*> decodeParam name decoder)
       where name = paramName sub
+
+handle ::
+     Method.StdMethod
+  -> Path
+  -> BodyDecoder a
+  -> ResponseEncoder b
+  -> Scotty.ActionM (a -> IO b)
+  -> Scotty.ScottyM ()
+handle method path decoder encoder f =
+  Scotty.addroute method (toPath path) $ do
+    body <- Scotty.body
+    case decode decoder body of
+      Just content ->
+        respond encoder =<< Scotty.liftAndCatchIO =<< f <*> pure content
+      Nothing -> Scotty.status Status.badRequest400
+
+handleWithoutBody ::
+     Method.StdMethod
+  -> Path
+  -> ResponseEncoder a
+  -> Scotty.ActionM (IO a)
+  -> Scotty.ScottyM ()
+handleWithoutBody method path encoder f =
+  Scotty.addroute
+    method
+    (toPath path)
+    (respond encoder =<< Scotty.liftAndCatchIO =<< f)
 
 paramName :: Route m b -> Text
 paramName sub = Text.pack (show (routeDepth 0 sub))
