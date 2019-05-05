@@ -55,7 +55,6 @@ import qualified "text" Data.Text as Text
 import qualified "text" Data.Text.Lazy as Text.Lazy
 import qualified "http-media" Network.HTTP.Media as Media
 import qualified "http-media" Network.HTTP.Media.RenderHeader
-import qualified "http-types" Network.HTTP.Types.Method as Method
 import qualified "http-types" Network.HTTP.Types.Status as Status
 import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
@@ -180,15 +179,16 @@ serveEndpoint' ::
   -> Scotty.ScottyM ()
 serveEndpoint' runM path route f =
   case route of
-    Get encoders -> handleWithoutBody Method.GET path encoders (runM <$> f)
+    Get encoders ->
+      Scotty.get (toPath path) $ handleWithoutBody encoders (runM <$> f)
     Post decoders encoders ->
-      handle Method.POST path decoders encoders ((runM .) <$> f)
+      Scotty.post (toPath path) $ handle decoders encoders ((runM .) <$> f)
     Put decoders encoders -> do
-      handle Method.PUT path decoders encoders ((runM .) <$> f)
+      Scotty.put (toPath path) $ handle decoders encoders ((runM .) <$> f)
     Delete encoders ->
-      handleWithoutBody Method.DELETE path encoders (runM <$> f)
+      Scotty.delete (toPath path) $ handleWithoutBody encoders (runM <$> f)
     Patch decoders encoders -> do
-      handle Method.PATCH path decoders encoders ((runM .) <$> f)
+      Scotty.patch (toPath path) $ handle decoders encoders ((runM .) <$> f)
     PathSegmentStatic name sub -> serveEndpoint' runM (Static name path) sub f
     PathSegmentCapture decoder sub ->
       serveEndpoint'
@@ -203,59 +203,50 @@ serveEndpoint' runM path route f =
       serveEndpoint' runM path sub (f <*> decodeHeader name decoder)
 
 handle ::
-     Method.StdMethod
-  -> Path
-  -> [BodyDecoder a]
+     [BodyDecoder a]
   -> [ResponseEncoder b]
   -> Scotty.ActionM (a -> IO b)
-  -> Scotty.ScottyM ()
-handle method path decoders encoders f =
-  Scotty.addroute method (toPath path) $ do
-    body <- Scotty.body
-    decoder' <- chooseDecoder decoders
-    encoder' <- chooseEncoder encoders
-    either Scotty.status id $ do
-      decoder <- toEither Status.unsupportedMediaType415 decoder'
-      encoder <- toEither Status.notAcceptable406 encoder'
-      content <- toEither Status.badRequest400 (decode decoder body)
-      pure $ respond encoder =<< f <*> pure content
+  -> Scotty.ActionM ()
+handle decoders encoders f = do
+  decoder <- chooseDecoder decoders
+  encoder <- chooseEncoder encoders
+  content <- decodeBody decoder
+  response <- f <*> pure content
+  respond encoder response
 
 handleWithoutBody ::
-     Method.StdMethod
-  -> Path
-  -> [ResponseEncoder a]
-  -> Scotty.ActionM (IO a)
-  -> Scotty.ScottyM ()
-handleWithoutBody method path encoders f =
-  Scotty.addroute method (toPath path) $ do
-    encoder' <- chooseEncoder encoders
-    either Scotty.status id $ do
-      encoder <- toEither Status.notAcceptable406 encoder'
-      pure $ respond encoder =<< f
+     [ResponseEncoder a] -> Scotty.ActionM (IO a) -> Scotty.ActionM ()
+handleWithoutBody encoders f = do
+  encoder <- chooseEncoder encoders
+  response <- f
+  respond encoder response
 
-toEither :: e -> Maybe a -> Either e a
-toEither e = maybe (Left e) Right
+decodeBody :: BodyDecoder a -> Scotty.ActionM a
+decodeBody decoder = do
+  body <- Scotty.body
+  maybe (finish Status.badRequest400) pure (decode decoder body)
 
-chooseDecoder :: [BodyDecoder a] -> Scotty.ActionM (Maybe (BodyDecoder a))
+chooseDecoder :: [BodyDecoder a] -> Scotty.ActionM (BodyDecoder a)
 chooseDecoder decoders = do
   contentType <- fmap (encodeUtf8 . toStrict) <$> Scotty.header "Content-Type"
-  pure $
-    maybe
-      (listToMaybe decoders)
-      (Media.mapContentMedia (choice <$> decoders))
-      contentType
+  let decoder =
+        maybe
+          (listToMaybe decoders)
+          (Media.mapContentMedia (choice <$> decoders))
+          contentType
+  maybe (finish Status.unsupportedMediaType415) pure decoder
   where
     choice decoder = (bodyMediaType decoder, decoder)
 
-chooseEncoder ::
-     [ResponseEncoder a] -> Scotty.ActionM (Maybe (ResponseEncoder a))
+chooseEncoder :: [ResponseEncoder a] -> Scotty.ActionM (ResponseEncoder a)
 chooseEncoder encoders = do
   accept <- fmap (encodeUtf8 . toStrict) <$> Scotty.header "Accept"
-  pure $
-    maybe
-      (listToMaybe encoders)
-      (Media.mapAcceptMedia (choice <$> encoders))
-      accept
+  let encoder =
+        maybe
+          (listToMaybe encoders)
+          (Media.mapAcceptMedia (choice <$> encoders))
+          accept
+  maybe (finish Status.notAcceptable406) pure encoder
   where
     choice encoder = (mediaType encoder, encoder)
 
@@ -307,8 +298,11 @@ respond ResponseEncoder {encode, mediaType} x = do
   Scotty.raw body
 
 parseError :: Scotty.ActionM a
-parseError = do
-  Scotty.status Status.badRequest400
+parseError = finish Status.badRequest400
+
+finish :: Status.Status -> Scotty.ActionM a
+finish status = do
+  Scotty.status status
   Scotty.finish
 
 renderMediaType :: MediaType -> Text
