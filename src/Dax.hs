@@ -39,9 +39,10 @@ module Dax
 
 import "base" Data.Bifunctor (first)
 import "base" Data.Foldable (for_, traverse_)
+import "base" Data.Maybe (listToMaybe)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
-import "text" Data.Text.Encoding (decodeUtf8)
+import "text" Data.Text.Encoding (decodeUtf8, encodeUtf8)
 import "text" Data.Text.Lazy (fromStrict, toStrict)
 import "base" Data.Typeable (Typeable, typeRep)
 import "this" Dax.Types
@@ -50,6 +51,7 @@ import "http-media" Network.HTTP.Media.MediaType (MediaType)
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
 import qualified "text" Data.Text.Lazy as Text.Lazy
+import qualified "http-media" Network.HTTP.Media as Media
 import qualified "http-media" Network.HTTP.Media.RenderHeader
 import qualified "http-types" Network.HTTP.Types.Method as Method
 import qualified "http-types" Network.HTTP.Types.Status as Status
@@ -60,18 +62,18 @@ data Route m a where
   Get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
   Post
     :: (Typeable a, Typeable b)
-    => BodyDecoder a
+    => [BodyDecoder a]
     -> ResponseEncoder b
     -> Route m (a -> Result m b)
   Put
     :: (Typeable a, Typeable b)
-    => BodyDecoder a
+    => [BodyDecoder a]
     -> ResponseEncoder b
     -> Route m (a -> Result m b)
   Delete :: Typeable a => ResponseEncoder a -> Route m (Result m a)
   Patch
     :: (Typeable a, Typeable b)
-    => BodyDecoder a
+    => [BodyDecoder a]
     -> ResponseEncoder b
     -> Route m (a -> Result m b)
   PathSegmentStatic :: Text -> Route m b -> Route m b
@@ -103,14 +105,14 @@ get = Get
 
 post ::
      (Typeable a, Typeable b)
-  => BodyDecoder a
+  => [BodyDecoder a]
   -> ResponseEncoder b
   -> Route m (a -> Result m b)
 post = Post
 
 put ::
      (Typeable a, Typeable b)
-  => BodyDecoder a
+  => [BodyDecoder a]
   -> ResponseEncoder b
   -> Route m (a -> Result m b)
 put = Put
@@ -120,7 +122,7 @@ delete = Delete
 
 patch ::
      (Typeable a, Typeable b)
-  => BodyDecoder a
+  => [BodyDecoder a]
   -> ResponseEncoder b
   -> Route m (a -> Result m b)
 patch = Patch
@@ -176,17 +178,32 @@ serveEndpoint' runM path route f =
 handle ::
      Method.StdMethod
   -> Path
-  -> BodyDecoder a
+  -> [BodyDecoder a]
   -> ResponseEncoder b
   -> Scotty.ActionM (a -> IO b)
   -> Scotty.ScottyM ()
-handle method path decoder encoder f =
+handle method path decoders encoder f =
   Scotty.addroute method (toPath path) $ do
     body <- Scotty.body
-    case decode decoder body of
-      Just content ->
-        respond encoder =<< Scotty.liftAndCatchIO =<< f <*> pure content
-      Nothing -> Scotty.status Status.badRequest400
+    decoder' <- chooseDecoder decoders
+    either Scotty.status id $ do
+      decoder <- toEither Status.unsupportedMediaType415 decoder'
+      content <- toEither Status.badRequest400 (decode decoder body)
+      pure $ respond encoder =<< f <*> pure content
+
+toEither :: e -> Maybe a -> Either e a
+toEither e = maybe (Left e) Right
+
+chooseDecoder :: [BodyDecoder a] -> Scotty.ActionM (Maybe (BodyDecoder a))
+chooseDecoder decoders = do
+  contentType <- fmap (encodeUtf8 . toStrict) <$> Scotty.header "Content-Type"
+  pure $
+    maybe
+      (listToMaybe decoders)
+      (Media.mapContentMedia (choice <$> decoders))
+      contentType
+  where
+    choice decoder = (bodyMediaType decoder, decoder)
 
 handleWithoutBody ::
      Method.StdMethod
@@ -195,10 +212,7 @@ handleWithoutBody ::
   -> Scotty.ActionM (IO a)
   -> Scotty.ScottyM ()
 handleWithoutBody method path encoder f =
-  Scotty.addroute
-    method
-    (toPath path)
-    (respond encoder =<< Scotty.liftAndCatchIO =<< f)
+  Scotty.addroute method (toPath path) (respond encoder =<< f)
 
 paramName :: Route m b -> Text
 paramName sub = Text.pack (show (routeDepth 0 sub))
@@ -221,10 +235,10 @@ decodeParam name ParamDecoder {parse} = do
     Right x -> pure x
     Left _ -> Scotty.next
 
-respond :: ResponseEncoder a -> a -> Scotty.ActionM ()
+respond :: ResponseEncoder a -> IO a -> Scotty.ActionM ()
 respond ResponseEncoder {encode, mediaType} x = do
   Scotty.setHeader "Content-Type" (fromStrict $ renderMediaType mediaType)
-  let Response {body, status, headers} = encode x
+  Response {body, status, headers} <- encode <$> Scotty.liftAndCatchIO x
   Scotty.status status
   for_ headers $ \(name, value) ->
     Scotty.setHeader
