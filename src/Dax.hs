@@ -157,7 +157,13 @@ header = Header
 -- |
 -- Interpret the API as a WAI application.
 application :: (forall x. Result m x -> IO x) -> API m -> IO Wai.Application
-application runM = Scotty.scottyApp . traverse_ (serveEndpoint runM)
+application runM api =
+  Scotty.scottyApp $
+    -- The default Scotty handler puts the error message in the response body.
+    -- Overwrite this with a blank 500 error for security.
+   do
+    Scotty.defaultHandler (\_ -> finish Status.internalServerError500)
+    traverse_ (serveEndpoint runM) api
 
 -- |
 -- A simple application that cannot communicate with the outside world.
