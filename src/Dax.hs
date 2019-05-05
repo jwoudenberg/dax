@@ -19,6 +19,7 @@ module Dax
   , delete
   , static
   , capture
+  , query
   , application
   , sandbox
   , autoParamDecoder
@@ -79,6 +80,12 @@ data Route m a where
   PathSegmentStatic :: Text -> Route m b -> Route m b
   PathSegmentCapture
     :: (Typeable a) => ParamDecoder a -> Route m b -> Route m (a -> b)
+  QueryParamCapture
+    :: (Typeable a)
+    => Text
+    -> ParamDecoder a
+    -> Route m b
+    -> Route m (Maybe a -> b)
 
 type family Result m a where
   Result NoEffects x = x
@@ -133,6 +140,10 @@ static = PathSegmentStatic
 capture :: Typeable a => ParamDecoder a -> Route m b -> Route m (a -> b)
 capture = PathSegmentCapture
 
+query ::
+     Typeable a => Text -> ParamDecoder a -> Route m b -> Route m (Maybe a -> b)
+query = QueryParamCapture
+
 -- |
 -- Interpret the API as a WAI application.
 application :: (forall x. Result m x -> IO x) -> API m -> IO Wai.Application
@@ -167,14 +178,16 @@ serveEndpoint' runM path route f =
       handleWithoutBody Method.DELETE path encoders (runM <$> f)
     Patch decoders encoders -> do
       handle Method.PATCH path decoders encoders ((runM .) <$> f)
-    (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
-    (PathSegmentCapture decoders sub) ->
+    PathSegmentStatic name sub -> serveEndpoint' runM (Static name path) sub f
+    PathSegmentCapture decoder sub ->
       serveEndpoint'
         runM
         (Capture name path)
         sub
-        (f <*> decodeParam name decoders)
+        (f <*> decodeParam name decoder)
       where name = paramName sub
+    QueryParamCapture name decoder sub ->
+      serveEndpoint' runM path sub (f <*> decodeOptionalParam name decoder)
 
 handle ::
      Method.StdMethod
@@ -246,6 +259,7 @@ routeDepth n route =
     Patch _ _ -> n
     PathSegmentStatic _ sub -> routeDepth (n + 1) sub
     PathSegmentCapture _ sub -> routeDepth (n + 1) sub
+    QueryParamCapture _ _ sub -> routeDepth n sub
 
 decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
 decodeParam name ParamDecoder {parse} = do
@@ -253,6 +267,13 @@ decodeParam name ParamDecoder {parse} = do
   case parse value of
     Right x -> pure x
     Left _ -> Scotty.next
+
+decodeOptionalParam :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
+decodeOptionalParam name ParamDecoder {parse} = do
+  params <- Scotty.params
+  let encoded = lookup (fromStrict name) params
+  let value = traverse (parse . toStrict) encoded
+  either (const Scotty.next) pure value
 
 respond :: ResponseEncoder a -> IO a -> Scotty.ActionM ()
 respond ResponseEncoder {encode, mediaType} x = do
@@ -289,7 +310,7 @@ documentation :: API m -> [Doc]
 documentation = fmap docForEndpoint
 
 docForEndpoint :: Endpoint m -> Doc
-docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
+docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "" [])
 
 docForRoute :: Route m a -> Doc -> Doc
 docForRoute (Get encoders) doc =
@@ -307,6 +328,8 @@ docForRoute (PathSegmentStatic name sub) doc =
 docForRoute (PathSegmentCapture (_ :: ParamDecoder a) sub) doc =
   docForRoute sub $
   doc {path = path doc <> "/:<" <> typeName (Proxy :: Proxy a) <> ">"}
+docForRoute (QueryParamCapture name _ sub) doc =
+  docForRoute sub doc {queryParams = name : queryParams doc}
 
 typeOfEncoders ::
      forall a. Typeable a
@@ -321,4 +344,5 @@ data Doc = Doc
   { path :: Text
   , method :: Text
   , responseTypes :: Text
+  , queryParams :: [Text]
   } deriving (Show)
