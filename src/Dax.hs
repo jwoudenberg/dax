@@ -59,22 +59,22 @@ import qualified "wai" Network.Wai as Wai
 import qualified "scotty" Web.Scotty as Scotty
 
 data Route m a where
-  Get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
+  Get :: Typeable a => [ResponseEncoder a] -> Route m (Result m a)
   Post
     :: (Typeable a, Typeable b)
     => [BodyDecoder a]
-    -> ResponseEncoder b
+    -> [ResponseEncoder b]
     -> Route m (a -> Result m b)
   Put
     :: (Typeable a, Typeable b)
     => [BodyDecoder a]
-    -> ResponseEncoder b
+    -> [ResponseEncoder b]
     -> Route m (a -> Result m b)
-  Delete :: Typeable a => ResponseEncoder a -> Route m (Result m a)
+  Delete :: Typeable a => [ResponseEncoder a] -> Route m (Result m a)
   Patch
     :: (Typeable a, Typeable b)
     => [BodyDecoder a]
-    -> ResponseEncoder b
+    -> [ResponseEncoder b]
     -> Route m (a -> Result m b)
   PathSegmentStatic :: Text -> Route m b -> Route m b
   PathSegmentCapture
@@ -100,30 +100,30 @@ autoParamDecoder =
 endpoint :: Route m a -> a -> Endpoint m
 endpoint = Endpoint
 
-get :: Typeable a => ResponseEncoder a -> Route m (Result m a)
+get :: Typeable a => [ResponseEncoder a] -> Route m (Result m a)
 get = Get
 
 post ::
      (Typeable a, Typeable b)
   => [BodyDecoder a]
-  -> ResponseEncoder b
+  -> [ResponseEncoder b]
   -> Route m (a -> Result m b)
 post = Post
 
 put ::
      (Typeable a, Typeable b)
   => [BodyDecoder a]
-  -> ResponseEncoder b
+  -> [ResponseEncoder b]
   -> Route m (a -> Result m b)
 put = Put
 
-delete :: (Typeable a) => ResponseEncoder a -> Route m (Result m a)
+delete :: (Typeable a) => [ResponseEncoder a] -> Route m (Result m a)
 delete = Delete
 
 patch ::
      (Typeable a, Typeable b)
   => [BodyDecoder a]
-  -> ResponseEncoder b
+  -> [ResponseEncoder b]
   -> Route m (a -> Result m b)
 patch = Patch
 
@@ -158,38 +158,54 @@ serveEndpoint' ::
   -> Scotty.ScottyM ()
 serveEndpoint' runM path route f =
   case route of
-    Get encoder -> handleWithoutBody Method.GET path encoder (runM <$> f)
-    Post decoder encoder ->
-      handle Method.POST path decoder encoder ((runM .) <$> f)
-    Put decoder encoder -> do
-      handle Method.PUT path decoder encoder ((runM .) <$> f)
-    Delete encoder -> handleWithoutBody Method.DELETE path encoder (runM <$> f)
-    Patch decoder encoder -> do
-      handle Method.PATCH path decoder encoder ((runM .) <$> f)
+    Get encoders -> handleWithoutBody Method.GET path encoders (runM <$> f)
+    Post decoders encoders ->
+      handle Method.POST path decoders encoders ((runM .) <$> f)
+    Put decoders encoders -> do
+      handle Method.PUT path decoders encoders ((runM .) <$> f)
+    Delete encoders ->
+      handleWithoutBody Method.DELETE path encoders (runM <$> f)
+    Patch decoders encoders -> do
+      handle Method.PATCH path decoders encoders ((runM .) <$> f)
     (PathSegmentStatic name sub) -> serveEndpoint' runM (Static name path) sub f
-    (PathSegmentCapture decoder sub) ->
+    (PathSegmentCapture decoders sub) ->
       serveEndpoint'
         runM
         (Capture name path)
         sub
-        (f <*> decodeParam name decoder)
+        (f <*> decodeParam name decoders)
       where name = paramName sub
 
 handle ::
      Method.StdMethod
   -> Path
   -> [BodyDecoder a]
-  -> ResponseEncoder b
+  -> [ResponseEncoder b]
   -> Scotty.ActionM (a -> IO b)
   -> Scotty.ScottyM ()
-handle method path decoders encoder f =
+handle method path decoders encoders f =
   Scotty.addroute method (toPath path) $ do
     body <- Scotty.body
     decoder' <- chooseDecoder decoders
+    encoder' <- chooseEncoder encoders
     either Scotty.status id $ do
       decoder <- toEither Status.unsupportedMediaType415 decoder'
+      encoder <- toEither Status.notAcceptable406 encoder'
       content <- toEither Status.badRequest400 (decode decoder body)
       pure $ respond encoder =<< f <*> pure content
+
+handleWithoutBody ::
+     Method.StdMethod
+  -> Path
+  -> [ResponseEncoder a]
+  -> Scotty.ActionM (IO a)
+  -> Scotty.ScottyM ()
+handleWithoutBody method path encoders f =
+  Scotty.addroute method (toPath path) $ do
+    encoder' <- chooseEncoder encoders
+    either Scotty.status id $ do
+      encoder <- toEither Status.notAcceptable406 encoder'
+      pure $ respond encoder =<< f
 
 toEither :: e -> Maybe a -> Either e a
 toEither e = maybe (Left e) Right
@@ -205,14 +221,17 @@ chooseDecoder decoders = do
   where
     choice decoder = (bodyMediaType decoder, decoder)
 
-handleWithoutBody ::
-     Method.StdMethod
-  -> Path
-  -> ResponseEncoder a
-  -> Scotty.ActionM (IO a)
-  -> Scotty.ScottyM ()
-handleWithoutBody method path encoder f =
-  Scotty.addroute method (toPath path) (respond encoder =<< f)
+chooseEncoder ::
+     [ResponseEncoder a] -> Scotty.ActionM (Maybe (ResponseEncoder a))
+chooseEncoder encoders = do
+  accept <- fmap (encodeUtf8 . toStrict) <$> Scotty.header "Accept"
+  pure $
+    maybe
+      (listToMaybe encoders)
+      (Media.mapAcceptMedia (choice <$> encoders))
+      accept
+  where
+    choice encoder = (mediaType encoder, encoder)
 
 paramName :: Route m b -> Text
 paramName sub = Text.pack (show (routeDepth 0 sub))
@@ -273,27 +292,33 @@ docForEndpoint :: Endpoint m -> Doc
 docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "")
 
 docForRoute :: Route m a -> Doc -> Doc
-docForRoute (Get (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "GET", responseType = typeName (Proxy :: Proxy b)}
-docForRoute (Post _ (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "POST", responseType = typeName (Proxy :: Proxy b)}
-docForRoute (Put _ (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "PUT", responseType = typeName (Proxy :: Proxy b)}
-docForRoute (Delete (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "DELETE", responseType = typeName (Proxy :: Proxy b)}
-docForRoute (Patch _ (_encoder :: ResponseEncoder b)) doc =
-  doc {method = "PATCH", responseType = typeName (Proxy :: Proxy b)}
+docForRoute (Get encoders) doc =
+  doc {method = "GET", responseTypes = typeOfEncoders encoders}
+docForRoute (Post _ encoders) doc =
+  doc {method = "POST", responseTypes = typeOfEncoders encoders}
+docForRoute (Put _ encoders) doc =
+  doc {method = "PUT", responseTypes = typeOfEncoders encoders}
+docForRoute (Delete encoders) doc =
+  doc {method = "DELETE", responseTypes = typeOfEncoders encoders}
+docForRoute (Patch _ encoders) doc =
+  doc {method = "PATCH", responseTypes = typeOfEncoders encoders}
 docForRoute (PathSegmentStatic name sub) doc =
   docForRoute sub $ doc {path = path doc <> "/" <> name}
 docForRoute (PathSegmentCapture (_ :: ParamDecoder a) sub) doc =
   docForRoute sub $
   doc {path = path doc <> "/:<" <> typeName (Proxy :: Proxy a) <> ">"}
 
-typeName :: Typeable a => Proxy a -> Text
+typeOfEncoders ::
+     forall a. Typeable a
+  => [ResponseEncoder a]
+  -> Text
+typeOfEncoders _ = Text.pack . show . typeRep $ (Proxy :: Proxy a)
+
+typeName :: Typeable a => m a -> Text
 typeName = Text.pack . show . typeRep
 
 data Doc = Doc
   { path :: Text
   , method :: Text
-  , responseType :: Text
+  , responseTypes :: Text
   } deriving (Show)
