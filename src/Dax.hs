@@ -204,7 +204,7 @@ serveEndpoint' runM path route f =
         (f <*> decodeParam name decoder)
       where name = paramName sub
     QueryParamCapture name decoder sub ->
-      serveEndpoint' runM path sub (f <*> decodeOptionalParam name decoder)
+      serveEndpoint' runM path sub (f <*> decodeQueryParam name decoder)
     Header name decoder sub ->
       serveEndpoint' runM path sub (f <*> decodeHeader name decoder)
 
@@ -277,20 +277,20 @@ decodeParam name ParamDecoder {parse} = do
   value <- Scotty.param (fromStrict name)
   case parse value of
     Right x -> pure x
-    Left _ -> parseError
+    Left _ -> Scotty.next
 
-decodeOptionalParam :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
-decodeOptionalParam name ParamDecoder {parse} = do
+decodeQueryParam :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
+decodeQueryParam name ParamDecoder {parse} = do
   params <- Scotty.params
   let encoded = lookup (fromStrict name) params
   let value = traverse (parse . toStrict) encoded
-  either (const parseError) pure value
+  either (const (finish Status.badRequest400)) pure value
 
 decodeHeader :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
 decodeHeader name ParamDecoder {parse} = do
   encoded <- Scotty.header (fromStrict name)
   let value = traverse (parse . toStrict) encoded
-  either (const parseError) pure value
+  either (const (finish Status.badRequest400)) pure value
 
 respond :: ResponseEncoder a -> IO a -> Scotty.ActionM ()
 respond ResponseEncoder {encode, mediaType} x = do
@@ -302,9 +302,6 @@ respond ResponseEncoder {encode, mediaType} x = do
       (Text.Lazy.pack $ show name)
       (fromStrict $ decodeUtf8 value)
   Scotty.raw body
-
-parseError :: Scotty.ActionM a
-parseError = finish Status.badRequest400
 
 finish :: Status.Status -> Scotty.ActionM a
 finish status = do
