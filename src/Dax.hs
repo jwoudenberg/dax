@@ -280,20 +280,20 @@ decodeParam name ParamDecoder {parse} = do
   value <- Scotty.param (fromStrict name)
   case parse value of
     Right x -> pure x
-    Left _ -> Scotty.next
+    Left _ -> parseError
 
 decodeOptionalParam :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
 decodeOptionalParam name ParamDecoder {parse} = do
   params <- Scotty.params
   let encoded = lookup (fromStrict name) params
   let value = traverse (parse . toStrict) encoded
-  either (const Scotty.next) pure value
+  either (const parseError) pure value
 
 decodeHeader :: Text -> ParamDecoder a -> Scotty.ActionM (Maybe a)
 decodeHeader name ParamDecoder {parse} = do
   encoded <- Scotty.header (fromStrict name)
   let value = traverse (parse . toStrict) encoded
-  either (const Scotty.next) pure value
+  either (const parseError) pure value
 
 respond :: ResponseEncoder a -> IO a -> Scotty.ActionM ()
 respond ResponseEncoder {encode, mediaType} x = do
@@ -305,6 +305,11 @@ respond ResponseEncoder {encode, mediaType} x = do
       (Text.Lazy.pack $ show name)
       (fromStrict $ decodeUtf8 value)
   Scotty.raw body
+
+parseError :: Scotty.ActionM a
+parseError = do
+  Scotty.status Status.badRequest400
+  Scotty.finish
 
 renderMediaType :: MediaType -> Text
 renderMediaType = decodeUtf8 . Network.HTTP.Media.RenderHeader.renderHeader
