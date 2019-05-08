@@ -21,6 +21,7 @@ module Dax
   , capture
   , query
   , header
+  , setHeader
   , application
   , sandbox
   , autoParamDecoder
@@ -92,6 +93,7 @@ data Route m a where
     -> ParamDecoder a
     -> Route m b
     -> Route m (Maybe a -> b)
+  SetHeader :: Text -> (b -> Text) -> Route m a -> Route m (b, a)
 
 type family Result m a where
   Result NoEffects x = x
@@ -154,6 +156,9 @@ header ::
      Typeable a => Text -> ParamDecoder a -> Route m b -> Route m (Maybe a -> b)
 header = Header
 
+setHeader :: Text -> (b -> Text) -> Route m a -> Route m (b, a)
+setHeader = SetHeader
+
 -- |
 -- Interpret the API as a WAI application.
 application :: (forall x. Result m x -> IO x) -> API m -> IO Wai.Application
@@ -207,6 +212,11 @@ serveEndpoint' runM path route f =
       serveEndpoint' runM path sub (f <*> decodeQueryParam name decoder)
     Header name decoder sub ->
       serveEndpoint' runM path sub (f <*> decodeHeader name decoder)
+    SetHeader name encoder sub ->
+      serveEndpoint' runM path sub $ do
+        (value, g) <- f
+        Scotty.setHeader (fromStrict name) (fromStrict (encoder value))
+        pure g
 
 handle ::
      [BodyDecoder a]
@@ -271,6 +281,7 @@ routeDepth n route =
     PathSegmentCapture _ sub -> routeDepth (n + 1) sub
     QueryParamCapture _ _ sub -> routeDepth n sub
     Header _ _ sub -> routeDepth n sub
+    SetHeader _ _ sub -> routeDepth n sub
 
 decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
 decodeParam name ParamDecoder {parse} = do
@@ -332,7 +343,7 @@ documentation :: API m -> [Doc]
 documentation = fmap docForEndpoint
 
 docForEndpoint :: Endpoint m -> Doc
-docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "" [] [])
+docForEndpoint (Endpoint route _) = docForRoute route (Doc "" "" "" [] [] [])
 
 docForRoute :: Route m a -> Doc -> Doc
 docForRoute (Get encoders) doc =
@@ -356,6 +367,10 @@ docForRoute (Header name decoder sub) doc =
   docForRoute
     sub
     doc {requestHeaders = (name, typeName decoder) : requestHeaders doc}
+docForRoute (SetHeader name encoder sub) doc =
+  docForRoute
+    sub
+    doc {responseHeaders = (name, typeName encoder) : responseHeaders doc}
 
 typeOfEncoders ::
      forall a. Typeable a
@@ -372,4 +387,5 @@ data Doc = Doc
   , responseTypes :: Text
   , queryParams :: [(Text, Text)]
   , requestHeaders :: [(Text, Text)]
+  , responseHeaders :: [(Text, Text)]
   } deriving (Show)
