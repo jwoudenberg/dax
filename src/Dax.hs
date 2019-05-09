@@ -22,6 +22,7 @@ module Dax
   , query
   , header
   , setHeader
+  , constantHeader
   , application
   , sandbox
   , autoParamDecoder
@@ -94,6 +95,7 @@ data Route m a where
     -> Route m b
     -> Route m (Maybe a -> b)
   SetHeader :: Text -> (b -> Text) -> Route m a -> Route m (b, a)
+  ConstantHeader :: Text -> Text -> Route m a -> Route m a
 
 type family Result m a where
   Result NoEffects x = x
@@ -159,6 +161,9 @@ header = Header
 setHeader :: Text -> (b -> Text) -> Route m a -> Route m (b, a)
 setHeader = SetHeader
 
+constantHeader :: Text -> Text -> Route m a -> Route m a
+constantHeader = ConstantHeader
+
 -- |
 -- Interpret the API as a WAI application.
 application :: (forall x. Result m x -> IO x) -> API m -> IO Wai.Application
@@ -217,6 +222,9 @@ serveEndpoint' runM path route f =
         (value, g) <- f
         Scotty.setHeader (fromStrict name) (fromStrict (encoder value))
         pure g
+    ConstantHeader name value sub ->
+      serveEndpoint' runM path sub $
+      Scotty.setHeader (fromStrict name) (fromStrict value) >> f
 
 handle ::
      [BodyDecoder a]
@@ -282,6 +290,7 @@ routeDepth n route =
     QueryParamCapture _ _ sub -> routeDepth n sub
     Header _ _ sub -> routeDepth n sub
     SetHeader _ _ sub -> routeDepth n sub
+    ConstantHeader _ _ sub -> routeDepth n sub
 
 decodeParam :: Text -> ParamDecoder a -> Scotty.ActionM a
 decodeParam name ParamDecoder {parse} = do
@@ -370,7 +379,12 @@ docForRoute (Header name decoder sub) doc =
 docForRoute (SetHeader name encoder sub) doc =
   docForRoute
     sub
-    doc {responseHeaders = (name, typeName encoder) : responseHeaders doc}
+    doc
+      { responseHeaders =
+          (name, "<" <> typeName encoder <> ">") : responseHeaders doc
+      }
+docForRoute (ConstantHeader name value sub) doc =
+  docForRoute sub doc {responseHeaders = (name, value) : responseHeaders doc}
 
 typeOfEncoders ::
      forall a. Typeable a
