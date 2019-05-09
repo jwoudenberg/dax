@@ -4,6 +4,7 @@
 
 module Main where
 
+import "text" Data.Text (Text)
 import "dax" Dax
 
 import qualified "dax" Dax.Response.Json as Response.Json
@@ -25,10 +26,12 @@ newtype Centigrade =
   Centigrade Float
   deriving (Parsable)
 
-toKelvinRoute :: Route NoEffects (Centigrade -> Kelvin)
+toKelvinRoute :: Route NoEffects (Centigrade -> (Text, Kelvin))
 toKelvinRoute =
   static "centigrade" $
-  capture centigradeDecoder $ static "kelvin" $ get [kelvinEncoder]
+  capture centigradeDecoder $
+  static "kelvin" $
+  constantHeader "OtherThing" "ha" $ setHeader "Thing" id $ get [kelvinEncoder]
 
 kelvinEncoder :: ResponseEncoder Kelvin
 kelvinEncoder = Response.Json.succeeds
@@ -36,5 +39,5 @@ kelvinEncoder = Response.Json.succeeds
 centigradeDecoder :: ParamDecoder Centigrade
 centigradeDecoder = autoParamDecoder
 
-toKelvin :: Centigrade -> Kelvin
-toKelvin (Centigrade temperature) = Kelvin (temperature + 273.15)
+toKelvin :: Centigrade -> (Text, Kelvin)
+toKelvin (Centigrade temperature) = ("Ho", Kelvin (temperature + 273.15))

@@ -45,6 +45,7 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - dax
+    - text
     - warp
 
 tests:
@@ -57,3 +58,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - dax
+    - tasty
+    - tasty-hunit
+    - wai
+    - wai-extra
