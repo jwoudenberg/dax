@@ -6,6 +6,7 @@ module Main
 
 import Dax
 import qualified Dax.Response.Json
+import Network.Wai (Request(requestMethod))
 import Network.Wai.Test
   ( Session
   , assertBody
@@ -44,13 +45,23 @@ routing =
       runSandbox staticRoute $ do
         response <- request $ setPath defaultRequest "/non-existing/route"
         assertStatus 404 response
+    , testCase "Request with unsupported method fails with 404" $
+      runSandbox staticRoute $ do
+        response <-
+          request $
+          setPath defaultRequest {requestMethod = "PUT"} "/teas/green/lemon"
+        -- This should be a 405 error, but Scotty disagrees. We won't be able to
+        -- change this until we swap out Scotty.
+        assertStatus 404 response
     , testCase
         "Handler for route with multiple capture segments receives arguments in right order" $
       runSandbox subtractRoute $ do
         response <- request $ setPath defaultRequest "/from/6/subtract/4"
         assertStatus 200 response
         assertBody "2" response
-    -- Request with unsupported method fails with 405
+    -- Post requests are supported
+    -- Put requests are supported
+    -- Delete requests are supported
     ]
 
 contentDecoding :: TestTree
