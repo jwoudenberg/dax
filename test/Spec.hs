@@ -4,17 +4,21 @@ module Main
   ( main
   ) where
 
+import Data.ByteString (ByteString)
+import Data.ByteString.Lazy (fromStrict)
 import Dax
 import qualified Dax.Response.Json
 import Network.Wai (Request(requestMethod))
 import Network.Wai.Test
-  ( Session
+  ( SRequest(SRequest)
+  , SResponse
+  , Session
   , assertBody
   , assertStatus
   , defaultRequest
-  , request
   , runSession
   , setPath
+  , srequest
   )
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase)
@@ -39,30 +43,35 @@ routing =
     "Routing"
     [ testCase "Request to static route with multiple segments succeeds" $
       runSandbox staticRoute $ do
-        response <- request $ setPath defaultRequest "/teas/green/lemon"
+        response <- request "GET" "/teas/green/lemon" ""
         assertStatus 200 response
     , testCase "Request to non existing route fails with 404" $
       runSandbox staticRoute $ do
-        response <- request $ setPath defaultRequest "/non-existing/route"
+        response <- request "GET" "/non-existing/route" ""
         assertStatus 404 response
     , testCase "Request with unsupported method fails with 404" $
       runSandbox staticRoute $ do
-        response <-
-          request $
-          setPath defaultRequest {requestMethod = "PUT"} "/teas/green/lemon"
+        response <- request "POST" "/teas/green/lemon" ""
         -- This should be a 405 error, but Scotty disagrees. We won't be able to
         -- change this until we swap out Scotty.
         assertStatus 404 response
     , testCase
         "Handler for route with multiple capture segments receives arguments in right order" $
       runSandbox subtractRoute $ do
-        response <- request $ setPath defaultRequest "/from/6/subtract/4"
+        response <- request "GET" "/from/6/subtract/4" ""
         assertStatus 200 response
         assertBody "2" response
     -- Post requests are supported
     -- Put requests are supported
     -- Delete requests are supported
     ]
+
+request :: ByteString -> ByteString -> ByteString -> Session SResponse
+request method path body =
+  srequest $
+  SRequest
+    (setPath defaultRequest {requestMethod = method} path)
+    (fromStrict body)
 
 contentDecoding :: TestTree
 contentDecoding = testGroup "Content decoding" []

@@ -57,6 +57,7 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - bytestring
     - dax
     - tasty
     - tasty-hunit
