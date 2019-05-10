@@ -4,24 +4,12 @@ module Main
   ( main
   ) where
 
-import Data.ByteString (ByteString)
-import Data.ByteString.Lazy (fromStrict)
 import Dax
 import qualified Dax.Response.Json
-import Network.Wai (Request(requestMethod))
-import Network.Wai.Test
-  ( SRequest(SRequest)
-  , SResponse
-  , Session
-  , assertBody
-  , assertStatus
-  , defaultRequest
-  , runSession
-  , setPath
-  , srequest
-  )
+import Network.Wai.Test (assertBody, assertStatus)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.HUnit (testCase)
+import Util (request, runSandbox)
 
 main :: IO ()
 main =
@@ -82,13 +70,6 @@ routing =
         assertStatus 200 response
     ]
 
-request :: ByteString -> ByteString -> ByteString -> Session SResponse
-request method path body =
-  srequest $
-  SRequest
-    (setPath defaultRequest {requestMethod = method} path)
-    (fromStrict body)
-
 contentDecoding :: TestTree
 contentDecoding = testGroup "Content decoding" []
 
@@ -106,9 +87,6 @@ responseHeaders = testGroup "Response headers" []
 
 docGeneration :: TestTree
 docGeneration = testGroup "Documentation generation" []
-
-runSandbox :: API NoEffects -> Session () -> IO ()
-runSandbox api assertion = sandbox api >>= runSession assertion
 
 staticRoute :: API NoEffects
 staticRoute =
