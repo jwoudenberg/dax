@@ -61,6 +61,12 @@ routing =
         response <- request "GET" "/from/6/subtract/4" ""
         assertStatus 200 response
         assertBody "2" response
+    , testCase "Route can accept query string parameters" $
+      runSandbox queryRoute $ do
+        response <- request "GET" "/echo?number=4" ""
+        assertStatus 200 response
+        assertBody "4" response
+    -- Query string parameters are accepted
     -- Post requests are supported
     -- Put requests are supported
     -- Delete requests are supported
@@ -108,6 +114,13 @@ subtractRoute =
        capture intDecoder $
        static "subtract" $ capture intDecoder $ get [intEncoder])
       (-)
+  ]
+
+queryRoute :: API NoEffects
+queryRoute =
+  [ endpoint
+      (static "echo" $ query "number" intDecoder $ get [intEncoder])
+      (maybe (-1) id)
   ]
 
 intEncoder :: ResponseEncoder Int
