@@ -66,10 +66,20 @@ routing =
         response <- request "GET" "/echo?number=4" ""
         assertStatus 200 response
         assertBody "4" response
-    -- Query string parameters are accepted
-    -- Post requests are supported
-    -- Put requests are supported
-    -- Delete requests are supported
+    , testCase "Request to POST route succeeds" $
+      runSandbox postRoute $ do
+        response <- request "POST" "/echo" "42"
+        assertStatus 200 response
+        assertBody "42" response
+    , testCase "Request to PUT route succeeds" $
+      runSandbox putRoute $ do
+        response <- request "PUT" "/echo" "42"
+        assertStatus 200 response
+        assertBody "42" response
+    , testCase "Request to DELETE route succeeds" $
+      runSandbox deleteRoute $ do
+        response <- request "DELETE" "/echo" ""
+        assertStatus 200 response
     ]
 
 request :: ByteString -> ByteString -> ByteString -> Session SResponse
@@ -103,7 +113,7 @@ runSandbox api assertion = sandbox api >>= runSession assertion
 staticRoute :: API NoEffects
 staticRoute =
   [ endpoint
-      (static "teas" $ static "green" $ static "lemon" $ get [intEncoder])
+      (static "teas" $ static "green" $ static "lemon" $ get [bodyEncoder])
       42
   ]
 
@@ -111,20 +121,32 @@ subtractRoute :: API NoEffects
 subtractRoute =
   [ endpoint
       (static "from" $
-       capture intDecoder $
-       static "subtract" $ capture intDecoder $ get [intEncoder])
+       capture paramDecoder $
+       static "subtract" $ capture paramDecoder $ get [bodyEncoder])
       (-)
   ]
 
 queryRoute :: API NoEffects
 queryRoute =
   [ endpoint
-      (static "echo" $ query "number" intDecoder $ get [intEncoder])
+      (static "echo" $ query "number" paramDecoder $ get [bodyEncoder])
       (maybe (-1) id)
   ]
 
-intEncoder :: ResponseEncoder Int
-intEncoder = Dax.Response.Json.succeeds
+postRoute :: API NoEffects
+postRoute = [endpoint (static "echo" $ post [bodyDecoder] [bodyEncoder]) id]
 
-intDecoder :: ParamDecoder Int
-intDecoder = autoParamDecoder
+putRoute :: API NoEffects
+putRoute = [endpoint (static "echo" $ put [bodyDecoder] [bodyEncoder]) id]
+
+deleteRoute :: API NoEffects
+deleteRoute = [endpoint (static "echo" $ delete [bodyEncoder]) 42]
+
+bodyEncoder :: ResponseEncoder Int
+bodyEncoder = Dax.Response.Json.succeeds
+
+bodyDecoder :: BodyDecoder Int
+bodyDecoder = Dax.Response.Json.autoBodyDecoder
+
+paramDecoder :: ParamDecoder Int
+paramDecoder = autoParamDecoder

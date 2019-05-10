@@ -4,6 +4,7 @@
 
 module Dax.Response.Json
   ( succeeds
+  , autoBodyDecoder
   , succeedsWithoutResponse
   , mayNotFind
   , mayNotValidate
@@ -18,6 +19,10 @@ import "http-types" Network.HTTP.Types.Status (Status)
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "http-types" Network.HTTP.Types.Status as Status
+
+autoBodyDecoder :: (Aeson.FromJSON a) => BodyDecoder a
+autoBodyDecoder =
+  BodyDecoder {decode = Aeson.decode, bodyMediaType = applicationJson}
 
 -- |
 -- Encode a response for an endpoint that always succeeds in getting a response.
