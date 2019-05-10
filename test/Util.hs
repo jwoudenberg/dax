@@ -6,7 +6,8 @@ module Util
 import Data.ByteString (ByteString)
 import Data.ByteString.Lazy (fromStrict)
 import Dax
-import Network.Wai (Request(requestMethod))
+import Network.HTTP.Types (RequestHeaders)
+import Network.Wai (Request(requestHeaders, requestMethod))
 import Network.Wai.Test
   ( SRequest(SRequest)
   , SResponse
@@ -17,11 +18,18 @@ import Network.Wai.Test
   , srequest
   )
 
-request :: ByteString -> ByteString -> ByteString -> Session SResponse
-request method path body =
+request ::
+     ByteString
+  -> ByteString
+  -> ByteString
+  -> RequestHeaders
+  -> Session SResponse
+request method path body headers =
   srequest $
   SRequest
-    (setPath defaultRequest {requestMethod = method} path)
+    (setPath
+       defaultRequest {requestMethod = method, requestHeaders = headers}
+       path)
     (fromStrict body)
 
 runSandbox :: API NoEffects -> Session () -> IO ()

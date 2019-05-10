@@ -59,6 +59,8 @@ tests:
     dependencies:
     - bytestring
     - dax
+    - http-media
+    - http-types
     - tasty
     - tasty-hunit
     - wai

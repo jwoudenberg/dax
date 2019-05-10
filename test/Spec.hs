@@ -4,6 +4,7 @@ module Main
   ( main
   ) where
 
+import qualified ContentDecodingSpec
 import qualified RoutingSpec
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
@@ -13,16 +14,13 @@ main =
   testGroup
     "Dax"
     [ RoutingSpec.spec
-    , contentDecoding
+    , ContentDecodingSpec.spec
     , contentEncoding
     , effectfulApis
     , requestHeaders
     , responseHeaders
     , docGeneration
     ]
-
-contentDecoding :: TestTree
-contentDecoding = testGroup "Content decoding" []
 
 contentEncoding :: TestTree
 contentEncoding = testGroup "Content encoding" []

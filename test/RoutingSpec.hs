@@ -17,42 +17,42 @@ spec =
     "Routing"
     [ testCase "Request to static route with multiple segments succeeds" $
       runSandbox staticRoute $ do
-        response <- request "GET" "/teas/green/lemon" ""
+        response <- request "GET" "/teas/green/lemon" "" []
         assertStatus 200 response
     , testCase "Request to non existing route fails with 404" $
       runSandbox staticRoute $ do
-        response <- request "GET" "/non-existing/route" ""
+        response <- request "GET" "/non-existing/route" "" []
         assertStatus 404 response
     , testCase "Request with unsupported method fails with 404" $
       runSandbox staticRoute $ do
-        response <- request "POST" "/teas/green/lemon" ""
+        response <- request "POST" "/teas/green/lemon" "" []
         -- This should be a 405 error, but Scotty disagrees. We won't be able to
         -- change this until we swap out Scotty.
         assertStatus 404 response
     , testCase
         "Handler for route with multiple capture segments receives arguments in right order" $
       runSandbox subtractRoute $ do
-        response <- request "GET" "/from/6/subtract/4" ""
+        response <- request "GET" "/from/6/subtract/4" "" []
         assertStatus 200 response
         assertBody "2" response
-    , testCase "Route can accept query string parameters" $
+    , testCase "Route accepts query string parameters" $
       runSandbox queryRoute $ do
-        response <- request "GET" "/echo?number=4" ""
+        response <- request "GET" "/echo?number=4" "" []
         assertStatus 200 response
         assertBody "4" response
     , testCase "Request to POST route succeeds" $
       runSandbox postRoute $ do
-        response <- request "POST" "/echo" "42"
+        response <- request "POST" "/echo" "42" []
         assertStatus 200 response
         assertBody "42" response
     , testCase "Request to PUT route succeeds" $
       runSandbox putRoute $ do
-        response <- request "PUT" "/echo" "42"
+        response <- request "PUT" "/echo" "42" []
         assertStatus 200 response
         assertBody "42" response
     , testCase "Request to DELETE route succeeds" $
       runSandbox deleteRoute $ do
-        response <- request "DELETE" "/echo" ""
+        response <- request "DELETE" "/echo" "" []
         assertStatus 200 response
     ]
 
