@@ -6,6 +6,7 @@ module Main
 
 import qualified ContentDecodingSpec
 import qualified ContentEncodingSpec
+import qualified RequestHeaderSpec
 import qualified RoutingSpec
 import Test.Tasty (TestTree, defaultMain, testGroup)
 
@@ -17,17 +18,14 @@ main =
     [ RoutingSpec.spec
     , ContentDecodingSpec.spec
     , ContentEncodingSpec.spec
+    , RequestHeaderSpec.spec
     , effectfulApis
-    , requestHeaders
     , responseHeaders
     , docGeneration
     ]
 
 effectfulApis :: TestTree
 effectfulApis = testGroup "Effectful APIs" []
-
-requestHeaders :: TestTree
-requestHeaders = testGroup "Request headers" []
 
 responseHeaders :: TestTree
 responseHeaders = testGroup "Response headers" []
