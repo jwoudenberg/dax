@@ -6,6 +6,7 @@ module Main
 
 import qualified ContentDecodingSpec
 import qualified ContentEncodingSpec
+import qualified EffectfulSpec
 import qualified RequestHeaderSpec
 import qualified ResponseHeaderSpec
 import qualified RoutingSpec
@@ -21,12 +22,9 @@ main =
     , ContentEncodingSpec.spec
     , RequestHeaderSpec.spec
     , ResponseHeaderSpec.spec
-    , effectfulApis
+    , EffectfulSpec.spec
     , docGeneration
     ]
-
-effectfulApis :: TestTree
-effectfulApis = testGroup "Effectful APIs" []
 
 docGeneration :: TestTree
 docGeneration = testGroup "Documentation generation" []
