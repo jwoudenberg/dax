@@ -76,10 +76,10 @@ okResponse :: (Aeson.ToJSON a) => a -> Response
 okResponse = customResponse (const Status.status200)
 
 customResponse :: (Aeson.ToJSON a) => (a -> Status) -> a -> Response
-customResponse withStatus a = Response (Aeson.encode a) (withStatus a) []
+customResponse withStatus a = Response (Aeson.encode a) (withStatus a)
 
 defaultResponse :: Status -> Response
-defaultResponse status' = Response (Aeson.encode body') status' []
+defaultResponse status' = Response (Aeson.encode body') status'
   where
     body' :: Aeson.Object
     body' = "error" .= decodeUtf8 (Status.statusMessage status')

@@ -42,7 +42,7 @@ module Dax
   ) where
 
 import "base" Data.Bifunctor (first)
-import "base" Data.Foldable (for_, traverse_)
+import "base" Data.Foldable (traverse_)
 import "base" Data.Maybe (listToMaybe)
 import "base" Data.Proxy (Proxy(Proxy))
 import "text" Data.Text (Text)
@@ -54,7 +54,6 @@ import "http-media" Network.HTTP.Media.MediaType (MediaType)
 
 import qualified "aeson" Data.Aeson as Aeson
 import qualified "text" Data.Text as Text
-import qualified "text" Data.Text.Lazy as Text.Lazy
 import qualified "http-media" Network.HTTP.Media as Media
 import qualified "http-media" Network.HTTP.Media.RenderHeader
 import qualified "http-types" Network.HTTP.Types.Status as Status
@@ -315,12 +314,8 @@ decodeHeader name ParamDecoder {parse} = do
 respond :: ResponseEncoder a -> IO a -> Scotty.ActionM ()
 respond ResponseEncoder {encode, mediaType} x = do
   Scotty.setHeader "Content-Type" (fromStrict $ renderMediaType mediaType)
-  Response {body, status, headers} <- encode <$> Scotty.liftAndCatchIO x
+  Response {body, status} <- encode <$> Scotty.liftAndCatchIO x
   Scotty.status status
-  for_ headers $ \(name, value) ->
-    Scotty.setHeader
-      (Text.Lazy.pack $ show name)
-      (fromStrict $ decodeUtf8 value)
   Scotty.raw body
 
 finish :: Status.Status -> Scotty.ActionM a
